@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Copy, 
   Check, 
@@ -201,7 +201,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
         </div>
 
         <div className="space-y-4">
-          {/* Direct Raw Audio Stream URL (Ends with .ext) */}
           <div className="p-4 border-2 border-emerald-500/20 bg-emerald-50/20 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -252,11 +251,10 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
               </div>
             </div>
             <p className="text-[11px] text-slate-600 leading-relaxed">
-              When pasted into any browser address bar, this URL directly plays the audio in the native browser player without prompting a download. Also compatible with Discord soundboards, podcast RSS, and video players.
+              When pasted into any browser address bar, this URL directly plays the audio in the native browser player without prompting a download.
             </p>
           </div>
 
-          {/* Autoplay Shareable Web Player Link */}
           <div className="p-4 border border-indigo-200 bg-indigo-50/40 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -315,7 +313,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
             </p>
           </div>
 
-          {/* HTML5 Audio Tag Embed Snippet */}
           <div className="p-4 border border-slate-200 bg-white rounded-xl space-y-2">
             <div className="flex items-center gap-2">
               <Code className="w-3.5 h-3.5 text-slate-500" />

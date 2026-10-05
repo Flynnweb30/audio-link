@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { X, Copy, Check, Smartphone } from 'lucide-react';
 import { copyToClipboard } from '../utils/formatters';

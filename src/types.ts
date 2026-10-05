@@ -1,4 +1,4 @@
-﻿export interface AudioItem {
+export interface AudioItem {
   id: string;
   originalName: string;
   filename: string;

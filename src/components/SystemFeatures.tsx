@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Radio, PlayCircle, Globe2 } from 'lucide-react';
 
 export const SystemFeatures: React.FC = () => {

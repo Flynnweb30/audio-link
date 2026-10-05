@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Radio, Upload } from 'lucide-react';
 
 interface NavbarProps {

@@ -1,4 +1,4 @@
-﻿# AudioLink - Audio to Direct Stream URL
+# AudioLink - Audio to Direct Stream URL
 
 Convert MP3, WAV, M4A, OGG, and FLAC files into permanent, direct streaming URLs ending in the file extension (e.g., `https://audiolink.onrender.com/audio/aud_1742083921.mp3`).
 
