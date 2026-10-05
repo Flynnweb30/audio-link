@@ -1,0 +1,20 @@
+﻿{
+  "aud_sample_acoustic_chime": {
+    "id": "aud_sample_acoustic_chime",
+    "originalName": "Acoustic_Chimes_Demo.wav",
+    "filename": "aud_sample_acoustic_chime.wav",
+    "mimeType": "audio/wav",
+    "size": 396944,
+    "createdAt": "2026-10-05T20:30:33.100Z",
+    "duration": 4.5
+  },
+  "aud_sample_lofi_pulse": {
+    "id": "aud_sample_lofi_pulse",
+    "originalName": "Lofi_Pulse_Demo.wav",
+    "filename": "aud_sample_lofi_pulse.wav",
+    "mimeType": "audio/wav",
+    "size": 441044,
+    "createdAt": "2026-10-05T19:30:33.123Z",
+    "duration": 5.0
+  }
+}

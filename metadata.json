@@ -1,0 +1,6 @@
+{
+  "name": "AudioLink - Audio to Direct URL",
+  "description": "Upload audio files (MP3, WAV, M4A, OGG) to generate direct streamable URLs and auto-playing web player links.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
