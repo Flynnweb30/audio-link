@@ -14,10 +14,13 @@ import {
   AlertCircle, 
   Volume1, 
   QrCode,
-  Music2,
-  Repeat
+  Music,
+  Film,
+  Image as ImageIcon,
+  Repeat,
+  ExternalLink
 } from 'lucide-react';
-import { AudioItem } from '../types';
+import { MediaItem } from '../types';
 import { formatDuration, formatFileSize, copyToClipboard } from '../utils/formatters';
 import { WaveformVisualizer } from './WaveformVisualizer';
 import { QrCodeModal } from './QrCodeModal';
@@ -31,7 +34,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   audioId,
   onBackToStudio,
 }) => {
-  const [audioItem, setAudioItem] = useState<AudioItem | null>(null);
+  const [mediaItem, setMediaItem] = useState<MediaItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -49,29 +52,29 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
     setLoading(true);
     setLoadError(null);
 
-    fetch(`/api/audio/${audioId}`)
+    fetch(`/api/media/${audioId}`)
       .then((res) => {
         if (!res.ok) {
-          throw new Error(res.status === 404 ? 'Audio file was not found or has expired.' : 'Failed to fetch audio.');
+          throw new Error(res.status === 404 ? 'Media item was not found or has expired.' : 'Failed to load media.');
         }
         return res.json();
       })
       .then((data) => {
         if (!isCancelled) {
-          setAudioItem(data.item);
+          setMediaItem(data.item);
           setLoading(false);
         }
       })
       .catch((err) => {
         if (!isCancelled) {
-          setLoadError(err.message || 'Could not load audio.');
+          setLoadError(err.message || 'Could not load media.');
           setLoading(false);
         }
       });
@@ -82,7 +85,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   }, [audioId]);
 
   const attemptAutoplay = () => {
-    const el = audioRef.current;
+    const el = mediaRef.current;
     if (!el || autoplayAttempted) return;
 
     setAutoplayAttempted(true);
@@ -104,7 +107,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   };
 
   useEffect(() => {
-    const el = audioRef.current;
+    const el = mediaRef.current;
     if (!el) return;
 
     const handleLoadedMetadata = () => {
@@ -141,34 +144,10 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       el.removeEventListener('timeupdate', handleTimeUpdate);
       el.removeEventListener('ended', handleEnded);
     };
-  }, [audioItem, autoplayAttempted, isLooping]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      if (e.code === 'Space') {
-        e.preventDefault();
-        togglePlay();
-      } else if (e.code === 'ArrowLeft') {
-        e.preventDefault();
-        skipTime(-10);
-      } else if (e.code === 'ArrowRight') {
-        e.preventDefault();
-        skipTime(10);
-      } else if (e.code === 'KeyM') {
-        toggleMute();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  });
+  }, [mediaItem, autoplayAttempted, isLooping]);
 
   const togglePlay = () => {
-    const el = audioRef.current;
+    const el = mediaRef.current;
     if (!el) return;
 
     if (isPlaying) {
@@ -180,58 +159,56 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
           setIsPlaying(true);
           setAutoplayBlocked(false);
         })
-        .catch((err) => {
-          console.error('Play request failed:', err);
-        });
+        .catch((err) => console.error('Play request failed:', err));
     }
   };
 
   const handleSeek = (newTime: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = newTime;
+    if (mediaRef.current) {
+      mediaRef.current.currentTime = newTime;
       setCurrentTime(newTime);
     }
   };
 
   const skipTime = (offsetSecs: number) => {
-    if (audioRef.current) {
-      const newTime = Math.max(0, Math.min(duration, audioRef.current.currentTime + offsetSecs));
-      audioRef.current.currentTime = newTime;
+    if (mediaRef.current) {
+      const newTime = Math.max(0, Math.min(duration, mediaRef.current.currentTime + offsetSecs));
+      mediaRef.current.currentTime = newTime;
       setCurrentTime(newTime);
     }
   };
 
   const handleVolumeChange = (newVol: number) => {
     setVolume(newVol);
-    if (audioRef.current) {
-      audioRef.current.volume = newVol;
+    if (mediaRef.current) {
+      mediaRef.current.volume = newVol;
       if (newVol > 0 && isMuted) {
         setIsMuted(false);
-        audioRef.current.muted = false;
+        mediaRef.current.muted = false;
       }
     }
   };
 
   const toggleMute = () => {
-    if (audioRef.current) {
+    if (mediaRef.current) {
       const nextMuted = !isMuted;
-      audioRef.current.muted = nextMuted;
+      mediaRef.current.muted = nextMuted;
       setIsMuted(nextMuted);
     }
   };
 
   const handleSpeedChange = (rate: number) => {
     setPlaybackRate(rate);
-    if (audioRef.current) {
-      audioRef.current.playbackRate = rate;
+    if (mediaRef.current) {
+      mediaRef.current.playbackRate = rate;
     }
   };
 
   const toggleLoop = () => {
     const next = !isLooping;
     setIsLooping(next);
-    if (audioRef.current) {
-      audioRef.current.loop = next;
+    if (mediaRef.current) {
+      mediaRef.current.loop = next;
     }
   };
 
@@ -247,19 +224,19 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     return (
       <div className="min-h-[50vh] flex flex-col items-center justify-center p-8">
         <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-medium text-slate-700">Connecting to direct audio stream...</p>
+        <p className="text-sm font-medium text-slate-700">Connecting to direct stream...</p>
       </div>
     );
   }
 
-  if (loadError || !audioItem) {
+  if (loadError || !mediaItem) {
     return (
-      <div className="max-w-md mx-auto my-12 p-8 bg-white border border-slate-200 rounded-2xl text-center shadow-xs">
+      <div className="max-w-md mx-auto my-12 p-8 bg-white border border-slate-200 rounded-3xl text-center shadow-xs">
         <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4">
           <AlertCircle className="w-6 h-6" />
         </div>
-        <h2 className="text-lg font-bold text-slate-900 mb-1">Audio Not Found</h2>
-        <p className="text-xs text-slate-500 mb-6">{loadError || 'This audio link does not exist.'}</p>
+        <h2 className="text-lg font-bold text-slate-900 mb-1">Media Not Found</h2>
+        <p className="text-xs text-slate-500 mb-6">{loadError || 'This link does not exist.'}</p>
         <button
           onClick={onBackToStudio}
           className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition-colors inline-flex items-center gap-2"
@@ -272,14 +249,14 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <button
           onClick={onBackToStudio}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Upload Audio File</span>
+          <span>Back to Upload Studio</span>
         </button>
 
         <div className="flex items-center gap-2">
@@ -320,7 +297,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
               <Play className="w-6 h-6 fill-current ml-0.5" />
             </div>
             <div>
-              <p className="text-sm font-bold tracking-tight">Tap to Start Audio Playback</p>
+              <p className="text-sm font-bold tracking-tight">Tap to Start Media Playback</p>
               <p className="text-xs text-indigo-100 mt-0.5">
                 Browser paused autoplay until first interaction. Click anywhere to begin stream.
               </p>
@@ -332,153 +309,189 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-8 space-y-6">
-        <audio
-          ref={audioRef}
-          src={audioItem.directAudioUrl}
-          autoPlay
-          preload="auto"
-        />
-
+      {/* Main Studio Card */}
+      <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6 sm:p-8 space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3.5 min-w-0">
             <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-xs">
-              <Music2 className="w-6 h-6 text-indigo-400" />
+              {mediaItem.mediaType === 'audio' ? (
+                <Music className="w-6 h-6 text-indigo-400" />
+              ) : mediaItem.mediaType === 'video' ? (
+                <Film className="w-6 h-6 text-violet-400" />
+              ) : (
+                <ImageIcon className="w-6 h-6 text-emerald-400" />
+              )}
             </div>
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-bold text-slate-900 truncate">
-                {audioItem.originalName}
+                {mediaItem.originalName}
               </h1>
               <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-                <span className="font-mono">{audioItem.mimeType}</span>
-                <span aria-hidden="true">·</span>
-                <span className="font-mono tabular-nums">{formatFileSize(audioItem.size)}</span>
-                <span aria-hidden="true">·</span>
+                <span className="font-mono uppercase font-semibold">{mediaItem.mediaType}</span>
+                <span>•</span>
+                <span className="font-mono">{mediaItem.mimeType}</span>
+                <span>•</span>
+                <span className="font-mono tabular-nums">{formatFileSize(mediaItem.size)}</span>
+                <span>•</span>
                 <span className="text-emerald-600 font-semibold">Direct Stream</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            <a
-              href={`/api/audio/${audioItem.id}/download`}
-              download={audioItem.originalName}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Download</span>
-            </a>
-          </div>
+          <a
+            href={`/api/media/${mediaItem.id}/download`}
+            download={mediaItem.originalName}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors shrink-0"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Download</span>
+          </a>
         </div>
 
-        <div className="space-y-1.5 bg-slate-50 p-4 rounded-xl border border-slate-100">
-          <WaveformVisualizer
-            isPlaying={isPlaying}
-            currentTime={currentTime}
-            duration={duration}
-            onSeek={handleSeek}
-            barCount={80}
-            height={64}
-          />
-          <div className="flex justify-between text-xs font-mono tabular-nums text-slate-500 px-0.5">
-            <span>{formatDuration(currentTime)}</span>
-            <span>{formatDuration(duration)}</span>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => skipTime(-10)}
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-              title="Skip back 10s (Left Arrow)"
-            >
-              <RotateCcw className="w-5 h-5" />
-            </button>
-
-            <button
-              onClick={togglePlay}
-              className="w-14 h-14 rounded-full bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center shadow-md transition-all active:scale-95"
-              aria-label={isPlaying ? 'Pause' : 'Play'}
-            >
-              {isPlaying ? (
-                <Pause className="w-6 h-6 fill-current" />
-              ) : (
-                <Play className="w-6 h-6 fill-current ml-0.5" />
-              )}
-            </button>
-
-            <button
-              onClick={() => skipTime(10)}
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-              title="Skip forward 10s (Right Arrow)"
-            >
-              <RotateCw className="w-5 h-5" />
-            </button>
-
-            <button
-              onClick={toggleLoop}
-              className={`p-2 rounded-lg transition-colors ${
-                isLooping ? 'text-indigo-600 bg-indigo-50 font-medium' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title={isLooping ? 'Looping enabled' : 'Enable loop'}
-            >
-              <Repeat className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
-              {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                <button
-                  key={rate}
-                  onClick={() => handleSpeedChange(rate)}
-                  className={`px-2 py-1 text-xs font-semibold rounded-md transition-colors ${
-                    playbackRate === rate
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  {rate}x
-                </button>
-              ))}
+        {/* Media Container */}
+        {mediaItem.mediaType === 'audio' ? (
+          <div className="space-y-4">
+            <audio
+              ref={(node) => { mediaRef.current = node; }}
+              src={mediaItem.directUrl}
+              autoPlay
+              preload="auto"
+            />
+            <div className="space-y-1.5 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+              <WaveformVisualizer
+                isPlaying={isPlaying}
+                currentTime={currentTime}
+                duration={duration}
+                onSeek={handleSeek}
+                barCount={80}
+                height={64}
+              />
+              <div className="flex justify-between text-xs font-mono tabular-nums text-slate-500 px-0.5">
+                <span>{formatDuration(currentTime)}</span>
+                <span>{formatDuration(duration)}</span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={toggleMute}
-                className="text-slate-600 hover:text-slate-900 p-1.5"
-                title={isMuted ? 'Unmute' : 'Mute'}
-              >
-                {isMuted || volume === 0 ? (
-                  <VolumeX className="w-4 h-4 text-rose-500" />
-                ) : volume < 0.5 ? (
-                  <Volume1 className="w-4 h-4" />
-                ) : (
-                  <Volume2 className="w-4 h-4" />
-                )}
-              </button>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={isMuted ? 0 : volume}
-                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                className="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-900"
-                aria-label="Volume slider"
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <button
+                  onClick={() => skipTime(-10)}
+                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
+                  title="Skip back 10s"
+                >
+                  <RotateCcw className="w-5 h-5" />
+                </button>
+
+                <button
+                  onClick={togglePlay}
+                  className="w-14 h-14 rounded-full bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center shadow-md transition-all active:scale-95"
+                  aria-label={isPlaying ? 'Pause' : 'Play'}
+                >
+                  {isPlaying ? (
+                    <Pause className="w-6 h-6 fill-current" />
+                  ) : (
+                    <Play className="w-6 h-6 fill-current ml-0.5" />
+                  )}
+                </button>
+
+                <button
+                  onClick={() => skipTime(10)}
+                  className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
+                  title="Skip forward 10s"
+                >
+                  <RotateCw className="w-5 h-5" />
+                </button>
+
+                <button
+                  onClick={toggleLoop}
+                  className={`p-2 rounded-xl transition-colors ${
+                    isLooping ? 'text-indigo-600 bg-indigo-50 font-medium' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                  title={isLooping ? 'Looping enabled' : 'Enable loop'}
+                >
+                  <Repeat className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+                  {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                    <button
+                      key={rate}
+                      onClick={() => handleSpeedChange(rate)}
+                      className={`px-2 py-1 text-xs font-semibold rounded-md transition-colors ${
+                        playbackRate === rate
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      {rate}x
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleMute}
+                    className="text-slate-600 hover:text-slate-900 p-1.5"
+                    title={isMuted ? 'Unmute' : 'Mute'}
+                  >
+                    {isMuted || volume === 0 ? (
+                      <VolumeX className="w-4 h-4 text-rose-500" />
+                    ) : volume < 0.5 ? (
+                      <Volume1 className="w-4 h-4" />
+                    ) : (
+                      <Volume2 className="w-4 h-4" />
+                    )}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={isMuted ? 0 : volume}
+                    onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                    className="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-900"
+                    aria-label="Volume slider"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : mediaItem.mediaType === 'video' ? (
+          <div className="space-y-4">
+            <div className="relative rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+              <video
+                ref={(node) => { mediaRef.current = node; }}
+                src={mediaItem.directUrl}
+                controls
+                autoPlay
+                playsInline
+                preload="auto"
+                className="w-full max-h-[500px] object-contain"
               />
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center p-4">
+              <img
+                src={mediaItem.directUrl}
+                alt={mediaItem.originalName}
+                className="max-h-[600px] w-auto rounded-xl object-contain shadow-xs"
+              />
+            </div>
+          </div>
+        )}
 
+        {/* Direct Stream Link Box */}
         <div className="pt-4 border-t border-slate-100 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-800">
-              Direct Audio Stream URL (Ends in .{audioItem.filename.split('.').pop()})
+              Direct Raw {mediaItem.mediaType.toUpperCase()} Stream URL
             </span>
             <span className="text-[11px] text-slate-500">
-              Permanent direct endpoint
+              Permanent direct endpoint (ends in .{mediaItem.filename.split('.').pop()})
             </span>
           </div>
 
@@ -486,12 +499,12 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
             <input
               type="text"
               readOnly
-              value={audioItem.directAudioUrl}
-              className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 font-mono truncate select-all"
+              value={mediaItem.directUrl}
+              className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-mono truncate select-all"
             />
             <button
-              onClick={() => handleCopy(audioItem.directAudioUrl, 'direct')}
-              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
+              onClick={() => handleCopy(mediaItem.directUrl, 'direct')}
+              className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
             >
               {copiedType === 'direct' ? (
                 <>
@@ -511,8 +524,8 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
 
       <QrCodeModal
         url={window.location.href}
-        title="Scan to Listen on Mobile"
-        subtitle={audioItem.originalName}
+        title="Scan to Open on Mobile"
+        subtitle={mediaItem.originalName}
         isOpen={qrModalOpen}
         onClose={() => setQrModalOpen(false)}
       />

@@ -1,12 +1,17 @@
-export interface AudioItem {
+export type MediaType = 'audio' | 'video' | 'image';
+
+export interface MediaItem {
   id: string;
   originalName: string;
   filename: string;
+  mediaType: MediaType;
   mimeType: string;
   size: number;
   createdAt: string;
   duration?: number;
-  directAudioUrl: string;
+  width?: number;
+  height?: number;
+  directUrl: string;
   playerUrl: string;
 }
 
@@ -16,5 +21,5 @@ export interface UploadProgress {
   state: UploadState;
   percentage: number;
   errorMessage: string | null;
-  uploadedAudio: AudioItem | null;
+  uploadedMedia: MediaItem | null;
 }
