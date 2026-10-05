@@ -61,7 +61,6 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Filter Pills */}
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
             <button
               onClick={() => setFilterType('all')}

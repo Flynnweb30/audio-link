@@ -10,8 +10,7 @@ import {
   Sparkles,
   ArrowRight,
   Film,
-  Image as ImageIcon,
-  Check
+  Image as ImageIcon
 } from 'lucide-react';
 import { MediaItem, UploadProgress } from '../types';
 import { formatFileSize } from '../utils/formatters';
@@ -21,7 +20,7 @@ interface AudioUploaderProps {
   onSelectSample: (sampleId: string) => void;
 }
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = [
   '.mp3', '.wav', '.m4a', '.ogg', '.opus', '.flac', '.aac', '.weba',
   '.mp4', '.webm', '.mov', '.m4v', '.ogv', '.mkv',
@@ -224,7 +223,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Category selector chips */}
       <div className="flex items-center justify-center gap-2">
         <button
           type="button"
@@ -391,7 +389,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         </div>
       </div>
 
-      {/* Pre-loaded Studio Samples */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
         <div className="mb-4">
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">

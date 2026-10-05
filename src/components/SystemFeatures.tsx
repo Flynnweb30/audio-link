@@ -1,5 +1,5 @@
 import React from 'react';
-import { Radio, PlayCircle, Globe2, Film, Image as ImageIcon } from 'lucide-react';
+import { Radio, Film, Image as ImageIcon } from 'lucide-react';
 
 export const SystemFeatures: React.FC = () => {
   return (

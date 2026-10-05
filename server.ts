@@ -58,7 +58,6 @@ function saveRegistry(): void {
 
 loadRegistry();
 
-// Generate synthesized PCM WAV audio demo
 function generateSynthesizedWav(frequencySequence: number[], durationSeconds: number): Buffer {
   const sampleRate = 44100;
   const numChannels = 1;
@@ -104,7 +103,6 @@ function generateSynthesizedWav(frequencySequence: number[], durationSeconds: nu
   return buffer;
 }
 
-// Seed default media demos (Audio & Vector Image)
 function seedSampleMedia(): void {
   if (!mediaRegistry['aud_sample_acoustic_chime']) {
     const sample1Id = 'aud_sample_acoustic_chime';
@@ -246,18 +244,15 @@ const storage = multer.diskStorage({
 });
 
 const ALLOWED_EXTENSIONS = new Set([
-  // Audio
   '.mp3', '.wav', '.m4a', '.ogg', '.opus', '.flac', '.aac', '.weba',
-  // Video
   '.mp4', '.webm', '.mov', '.m4v', '.ogv', '.mkv',
-  // Image
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.ico'
 ]);
 
 const upload = multer({
   storage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit for video/audio/images
+    fileSize: 100 * 1024 * 1024,
   },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -270,12 +265,11 @@ const upload = multer({
     if (isAudio || isVideo || isImage || ALLOWED_EXTENSIONS.has(ext)) {
       cb(null, true);
     } else {
-      cb(new Error(`Unsupported file type: ${ext || mime}. Allowed formats: Audio (MP3, WAV, M4A, OGG), Video (MP4, WebM, MOV), Image (PNG, JPG, WebP, GIF, SVG).`));
+      cb(new Error(`Unsupported file type: ${ext || mime}. Allowed: Audio (MP3, WAV, M4A, OGG), Video (MP4, WebM, MOV), Image (PNG, JPG, WebP, SVG).`));
     }
   },
 });
 
-// Stream audio/video with HTTP 206 Byte-Range Seeking or render images inline
 function streamMediaFile(
   req: express.Request,
   res: express.Response,
@@ -298,7 +292,6 @@ function streamMediaFile(
   if (downloadName) {
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadName)}"`);
   } else {
-    // Crucial: 'inline' allows in-browser playback & direct image rendering
     res.setHeader('Content-Disposition', 'inline');
   }
 
@@ -351,9 +344,8 @@ async function startServer() {
     next();
   });
 
-  // Unified Media Upload
   app.post('/api/upload', (req, res) => {
-    upload.single('media')(req, res, (err: any) => {
+    upload.any()(req, res, (err: any) => {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({ error: 'File size exceeds maximum limit of 100MB.' });
@@ -363,11 +355,13 @@ async function startServer() {
         return res.status(400).json({ error: err.message || 'Failed to upload media file.' });
       }
 
-      if (!req.file) {
+      const files = req.files as Express.Multer.File[] | undefined;
+      const file = (files && files.length > 0) ? files[0] : (req as any).file;
+
+      if (!file) {
         return res.status(400).json({ error: 'No media file provided in request.' });
       }
 
-      const file = req.file;
       const fileId = path.parse(file.filename).name;
       const ext = path.extname(file.filename);
       const { mediaType, mimeType } = detectMediaType(ext, file.mimetype);
@@ -403,7 +397,7 @@ async function startServer() {
         item: {
           ...mediaItem,
           directUrl,
-          directAudioUrl: directUrl, // Backward-compatibility
+          directAudioUrl: directUrl,
           playerUrl,
         },
         directUrl,
@@ -414,7 +408,6 @@ async function startServer() {
     });
   });
 
-  // Query media list with optional type filter
   app.get(['/api/media', '/api/audios'], (req, res) => {
     const baseUrl = getBaseUrl(req);
     const filterType = req.query.type as string | undefined;
@@ -431,7 +424,7 @@ async function startServer() {
         return {
           ...item,
           directUrl,
-          directAudioUrl: directUrl, // Backward-compatibility
+          directAudioUrl: directUrl,
           playerUrl: `${baseUrl}/?play=${item.id}`,
         };
       });
@@ -439,7 +432,6 @@ async function startServer() {
     res.json({ items: formatted });
   });
 
-  // Get single media metadata
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -460,7 +452,6 @@ async function startServer() {
     });
   });
 
-  // Direct Media Stream & Inline View (Ends in actual file extension: .mp3, .mp4, .png, etc.)
   app.get(['/media/:filename', '/audio/:filename'], (req, res) => {
     const filename = req.params.filename;
     const fileId = path.parse(filename).name;
@@ -476,7 +467,6 @@ async function startServer() {
     streamMediaFile(req, res, filePath, mimeType);
   });
 
-  // Download endpoint
   app.get(['/api/media/:id/download', '/api/audio/:id/download'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -489,7 +479,6 @@ async function startServer() {
     streamMediaFile(req, res, filePath, item.mimeType, item.originalName);
   });
 
-  // Delete media item
   app.delete(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -513,7 +502,6 @@ async function startServer() {
     return res.json({ success: true, message: 'Media deleted successfully' });
   });
 
-  // Serve Frontend SPA in Production
   if (process.env.NODE_ENV === 'production') {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));

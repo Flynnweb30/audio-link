@@ -122,7 +122,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
         <audio ref={audioRef} src={media.directUrl} preload="metadata" />
       )}
 
-      {/* Header Banner */}
       <div className="bg-slate-900 text-white px-6 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -154,7 +153,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
       </div>
 
       <div className="p-6 space-y-6">
-        {/* Interactive Media Preview */}
         <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl">
           {media.mediaType === 'audio' ? (
             <div>
@@ -264,9 +262,7 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
           )}
         </div>
 
-        {/* URLs and Share Options */}
         <div className="space-y-4">
-          {/* Direct Raw Stream/Display URL */}
           <div className="p-4 border-2 border-emerald-500/20 bg-emerald-50/20 rounded-2xl space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -321,7 +317,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
             </p>
           </div>
 
-          {/* Autoplay Shareable Web Player URL */}
           <div className="p-4 border border-indigo-200 bg-indigo-50/40 rounded-2xl space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -377,7 +372,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
             </div>
           </div>
 
-          {/* HTML5 Embed Code */}
           <div className="p-4 border border-slate-200 bg-white rounded-2xl space-y-2">
             <div className="flex items-center gap-2">
               <Code className="w-3.5 h-3.5 text-slate-500" />

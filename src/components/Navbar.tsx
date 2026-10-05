@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Upload, Film, Music, Image as ImageIcon } from 'lucide-react';
+import { Layers, Upload } from 'lucide-react';
 
 interface NavbarProps {
   currentTab: 'upload' | 'history' | 'player';

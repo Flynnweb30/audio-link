@@ -17,8 +17,7 @@ import {
   Music,
   Film,
   Image as ImageIcon,
-  Repeat,
-  ExternalLink
+  Repeat
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatDuration, formatFileSize, copyToClipboard } from '../utils/formatters';
@@ -309,7 +308,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
         </div>
       )}
 
-      {/* Main Studio Card */}
       <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6 sm:p-8 space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3.5 min-w-0">
@@ -348,7 +346,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
           </a>
         </div>
 
-        {/* Media Container */}
         {mediaItem.mediaType === 'audio' ? (
           <div className="space-y-4">
             <audio
@@ -484,7 +481,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
           </div>
         )}
 
-        {/* Direct Stream Link Box */}
         <div className="pt-4 border-t border-slate-100 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-800">
