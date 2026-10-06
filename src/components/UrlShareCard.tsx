@@ -9,11 +9,8 @@ import {
   VolumeX, 
   Download, 
   QrCode, 
-  Code, 
   CheckCircle2,
-  Film,
-  Music,
-  Image as ImageIcon
+  Music
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatFileSize, formatDuration, copyToClipboard } from '../utils/formatters';
@@ -107,12 +104,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
     setQrTitle(title);
     setQrModalOpen(true);
   };
-
-  const embedCode = media.mediaType === 'audio'
-    ? `<audio controls preload="metadata" src="${media.directUrl}"></audio>`
-    : media.mediaType === 'video'
-    ? `<video controls preload="metadata" playsinline src="${media.directUrl}"></video>`
-    : `<img src="${media.directUrl}" alt="${encodeURIComponent(media.originalName)}" />`;
 
   return (
     <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">

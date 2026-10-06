@@ -1,62 +1,92 @@
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { 
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut, 
   onAuthStateChanged, 
-  browserLocalPersistence,
-  setPersistence,
+  browserLocalPersistence, 
+  setPersistence, 
   User, 
   Auth 
 } from 'firebase/auth';
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
-};
+const STORAGE_KEY_FIREBASE_CONFIG = 'medialink_custom_firebase_config';
 
-const app: FirebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
-const auth: Auth = getAuth(app);
+export function getActiveFirebaseConfig(): Record<string, string> {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_FIREBASE_CONFIG);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.apiKey && parsed.projectId) {
+        return parsed;
+      }
+    }
+  } catch {}
 
-// Guarantee persistent user session across browser tabs, reloads, and reopens
-setPersistence(auth, browserLocalPersistence).catch((err) => {
-  console.warn('Firebase persistence warning:', err);
-});
+  return {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  };
+}
+
+export function saveCustomFirebaseConfig(config: Record<string, string>): void {
+  localStorage.setItem(STORAGE_KEY_FIREBASE_CONFIG, JSON.stringify(config));
+  window.location.reload();
+}
+
+const config = getActiveFirebaseConfig();
+export const hasFirebaseCredentials = Boolean(config.apiKey && config.projectId);
+
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+
+if (hasFirebaseCredentials) {
+  try {
+    app = !getApps().length ? initializeApp(config) : getApp();
+    auth = getAuth(app);
+    // Real OAuth user session persistence across browser reloads and restarts
+    setPersistence(auth, browserLocalPersistence).catch((err) => {
+      console.warn('Firebase persistence warning:', err);
+    });
+  } catch (err) {
+    console.error('Failed to initialize Firebase with current credentials:', err);
+  }
+}
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-export const isFirebaseConfigured = Boolean(
-  import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_PROJECT_ID
-);
-
-// Real Google OAuth Flow using Firebase Authentication
+// Executes REAL Google OAuth popup flow
 export async function loginWithGoogle(): Promise<User> {
-  if (!isFirebaseConfigured) {
-    throw new Error(
-      'Firebase is not configured yet. Please add your VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, and VITE_FIREBASE_PROJECT_ID to your environment variables on Render (or .env locally).'
-    );
+  if (!auth) {
+    throw new Error('MISSING_CONFIG');
   }
 
   try {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
   } catch (err: any) {
-    console.error('Firebase Google OAuth error:', err);
+    console.error('Firebase Google Sign-In error:', err);
     throw err;
   }
 }
 
 export async function logoutUser(): Promise<void> {
-  await signOut(auth);
+  if (auth) {
+    await signOut(auth);
+  }
 }
 
 export function subscribeToAuth(callback: (user: User | null) => void): () => void {
+  if (!auth) {
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 }
 

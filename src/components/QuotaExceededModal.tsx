@@ -31,7 +31,7 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
 
           <h3 className="text-xl font-bold text-slate-900">Monthly Guest Quota Reached</h3>
           <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
-            You have consumed all <strong className="text-slate-800">30 free guest conversions</strong> for this calendar month. Sign in with Google to get instant, unlimited conversions.
+            You have used all <strong className="text-slate-800">30 free guest conversions</strong> for this calendar month. Sign in with Google for unlimited conversions and synced history.
           </p>
         </div>
 
@@ -42,7 +42,7 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
           </div>
           <div className="flex items-center gap-2 text-slate-700 font-medium">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>Preserve and sync previous guest history</span>
+            <span>All guest files migrated and permanently saved</span>
           </div>
           <div className="flex items-center gap-2 text-slate-700 font-medium">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -57,7 +57,7 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
               onClose();
               onSignInWithGoogle();
             }}
-            className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+            className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-2.5"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

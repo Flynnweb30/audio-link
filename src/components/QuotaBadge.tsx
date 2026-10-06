@@ -34,17 +34,17 @@ export const QuotaBadge: React.FC<QuotaBadgeProps> = ({ isSignedIn, onOpenSignIn
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1.5 py-1 px-1.5 text-slate-700 hover:text-slate-900 font-medium transition-colors cursor-pointer select-none"
+        className="flex items-center gap-1.5 py-1 px-2 text-slate-700 hover:text-slate-900 font-medium transition-colors"
       >
-        <span className="text-slate-700 font-semibold whitespace-nowrap">Image Hosting Quota:</span>
-        <span className="px-2 py-0.5 rounded border border-slate-200 bg-slate-50/80 font-mono text-slate-800 text-xs font-semibold shadow-2xs">
+        <span className="text-slate-600 font-semibold whitespace-nowrap">Image Hosting Quota:</span>
+        <span className="px-2 py-0.5 rounded border border-slate-200 bg-slate-50/80 font-mono text-slate-800 text-xs font-semibold">
           {isSignedIn ? 'Unlimited' : `${quota.used}/${quota.total}`}
         </span>
       </button>
 
-      {/* Popover matching screenshot layout */}
+      {/* Popover dropdown matching attached image */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-3 px-4 z-50 animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-lg border border-slate-200/90 py-3 px-4 z-50 animate-in fade-in zoom-in-95 duration-100">
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-600">
               <span className="font-medium">Used</span>
@@ -62,7 +62,7 @@ export const QuotaBadge: React.FC<QuotaBadgeProps> = ({ isSignedIn, onOpenSignIn
 
             <div className="border-t border-slate-100 my-2 pt-2">
               <p className="text-[11px] text-slate-400 font-medium">
-                {isSignedIn ? 'Lifetime (always free) - Google' : 'Lifetime (always free)'}
+                {isSignedIn ? 'Unlimited Plan (Google Account)' : 'Lifetime (always free)'}
               </p>
             </div>
 

@@ -7,21 +7,33 @@ import { RecentUploadsGrid } from './components/RecentUploadsGrid';
 import { MediaHistoryView } from './components/MediaHistoryView';
 import { SharePlayerView } from './components/SharePlayerView';
 import { QuotaExceededModal } from './components/QuotaExceededModal';
+import { FirebaseConfigModal } from './components/FirebaseConfigModal';
 import { MediaItem } from './types';
-import { getOrCreateGuestId } from './utils/userSession';
-import { getLocalGuestHistory, saveLocalGuestItem, removeLocalGuestItem } from './utils/localHistory';
-import { subscribeToAuth, loginWithGoogle, logoutUser } from './firebase';
+import { 
+  getOrCreateGuestId, 
+  getLocallyCachedHistory, 
+  saveLocallyCachedHistory, 
+  appendItemToLocalCache, 
+  removeItemFromLocalCache 
+} from './utils/userSession';
+import { 
+  subscribeToAuth, 
+  loginWithGoogle, 
+  logoutUser, 
+  hasFirebaseCredentials 
+} from './firebase';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'upload' | 'history' | 'player'>('upload');
   const [user, setUser] = useState<User | null>(null);
   const [activePlayerMediaId, setActivePlayerMediaId] = useState<string | null>(null);
   const [lastUploadedMedia, setLastUploadedMedia] = useState<MediaItem | null>(null);
-  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+  
+  // Instantly restores guest conversion history from persistent local storage
+  const [mediaList, setMediaList] = useState<MediaItem[]>(() => getLocallyCachedHistory());
   const [quotaModalOpen, setQuotaModalOpen] = useState(false);
-  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
 
-  // Authenticate user & sync state
   useEffect(() => {
     const unsubscribe = subscribeToAuth((firebaseUser) => {
       setUser(firebaseUser);
@@ -51,54 +63,50 @@ export default function App() {
     return () => window.removeEventListener('popstate', handleUrlChange);
   }, []);
 
+  // Sync server items with local persistent cache
   const fetchMedia = async () => {
     try {
       const res = await fetch(`/api/media?userId=${encodeURIComponent(currentUserId)}`, {
         headers: { 'X-User-Id': currentUserId },
       });
-      let serverItems: MediaItem[] = [];
       if (res.ok) {
         const data = await res.json();
-        serverItems = data.items || [];
-      }
-
-      if (!user) {
-        // Guest mode: Merge server items with permanently cached local guest items
-        const localItems = getLocalGuestHistory();
-        const map = new Map<string, MediaItem>();
-        serverItems.forEach((item) => map.set(item.id, item));
-        localItems.forEach((item) => {
-          if (!map.has(item.id)) {
-            map.set(item.id, item);
-          }
+        const serverItems: MediaItem[] = data.items || [];
+        
+        // Merge without losing any local guest records
+        setMediaList((prev) => {
+          const map = new Map<string, MediaItem>();
+          serverItems.forEach((i) => map.set(i.id, i));
+          prev.forEach((i) => {
+            if (!map.has(i.id)) map.set(i.id, i);
+          });
+          const merged = Array.from(map.values()).sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          saveLocallyCachedHistory(merged);
+          return merged;
         });
-        const merged = Array.from(map.values()).sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        setMediaList(merged);
-      } else {
-        setMediaList(serverItems);
       }
     } catch (err) {
-      console.error('Failed to fetch media list:', err);
-      if (!user) {
-        setMediaList(getLocalGuestHistory());
-      }
+      console.warn('Network fetch error, retaining local persistent history:', err);
     }
   };
 
   useEffect(() => {
     fetchMedia();
-  }, [currentUserId, user]);
+  }, [currentUserId]);
 
-  // Real Google OAuth Sign-In Flow with History Migration
+  // Real Google Sign-In with automatic guest-to-account history migration
   const handleGoogleSignIn = async () => {
-    setAuthErrorMessage(null);
+    if (!hasFirebaseCredentials) {
+      setConfigModalOpen(true);
+      return;
+    }
+
     try {
       const guestId = getOrCreateGuestId();
       const signedInUser = await loginWithGoogle();
       if (signedInUser) {
-        // Migrate all previous guest conversions to Google account
         await fetch('/api/migrate-history', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -107,8 +115,12 @@ export default function App() {
         fetchMedia();
       }
     } catch (err: any) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        setAuthErrorMessage(err.message || 'Google Sign-In failed.');
+      if (err.message === 'MISSING_CONFIG') {
+        setConfigModalOpen(true);
+      } else if (err.code === 'auth/unauthorized-domain') {
+        alert('This domain is not yet authorized in Firebase Console > Authentication > Settings > Authorized domains.');
+      } else if (err.code !== 'auth/popup-closed-by-user') {
+        alert('Google Sign-In failed: ' + (err.message || err.code));
       }
     }
   };
@@ -121,9 +133,8 @@ export default function App() {
 
   const handleUploadSuccess = (item: MediaItem) => {
     setLastUploadedMedia(item);
-    if (!user) {
-      saveLocalGuestItem(item);
-    }
+    appendItemToLocalCache(item);
+    setMediaList((prev) => [item, ...prev.filter((i) => i.id !== item.id)]);
     fetchMedia();
     setTimeout(() => {
       window.scrollTo({ top: 120, behavior: 'smooth' });
@@ -149,18 +160,17 @@ export default function App() {
       return;
     }
 
+    removeItemFromLocalCache(id);
+    setMediaList((prev) => prev.filter((i) => i.id !== id));
+
     try {
       const res = await fetch(`/api/media/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        if (!user) {
-          removeLocalGuestItem(id);
-        }
         if (lastUploadedMedia?.id === id) setLastUploadedMedia(null);
         if (activePlayerMediaId === id) handleBackToStudio();
-        fetchMedia();
       }
     } catch (err) {
-      console.error('Failed to delete media:', err);
+      console.error('Failed to delete media on server:', err);
     }
   };
 
@@ -185,21 +195,6 @@ export default function App() {
         onSignInWithGoogle={handleGoogleSignIn}
         onSignOut={handleSignOut}
       />
-
-      {/* Global Auth Error Banner */}
-      {authErrorMessage && (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-4 w-full">
-          <div className="p-4 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs flex items-center justify-between">
-            <span>{authErrorMessage}</span>
-            <button
-              onClick={() => setAuthErrorMessage(null)}
-              className="text-rose-600 font-bold hover:underline cursor-pointer"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
         {currentTab === 'player' && activePlayerMediaId ? (
@@ -248,7 +243,6 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* Drop All Media Area */}
                 <AudioUploader
                   isSignedIn={Boolean(user)}
                   currentUserId={currentUserId}
@@ -256,7 +250,6 @@ export default function App() {
                   onQuotaExceeded={() => setQuotaModalOpen(true)}
                 />
 
-                {/* Recent Uploads Grid Below Drop Area matching Image 1 */}
                 <RecentUploadsGrid
                   items={mediaList}
                   onOpenPlayer={handleOpenPlayer}
@@ -272,6 +265,11 @@ export default function App() {
         isOpen={quotaModalOpen}
         onClose={() => setQuotaModalOpen(false)}
         onSignInWithGoogle={handleGoogleSignIn}
+      />
+
+      <FirebaseConfigModal
+        isOpen={configModalOpen}
+        onClose={() => setConfigModalOpen(false)}
       />
 
       <footer className="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-500">

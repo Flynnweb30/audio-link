@@ -3,10 +3,11 @@
 Production-ready media upload web service engineered for deployment on Render. Convert MP3, WAV, MP4, WebM, PNG, JPG, AVIF, SVG, and more into permanent, direct streaming URLs ending in the file extension (e.g., `https://audiolink.onrender.com/media/media_1742083921.avif`).
 
 ## Features
-- **Upload & Direct URLs:** Supports Audio, Video, and Image files with `Content-Disposition: inline`.
-- **Per-User Conversion History:** Shows recent uploads on the upload studio (Image 1) and comprehensive history table with folder and date filters (Image 2 & 3).
-- **HTTP 206 Byte Ranges:** Full partial content support for scrub seeking, Safari, and lock-screen controls.
-- **Render Web Service Ready:** Configured with Node.js runtime, build script, and persistent storage.
+- **Real Firebase Google Authentication:** Instant Google OAuth with session persistence.
+- **Guest Access with 30 Free Credits/Month:** Automatically resets at the start of each calendar month.
+- **Permanent Guest History:** Stored locally and on server; seamlessly restored on reloads and device returns.
+- **Seamless Account Migration:** Guest history automatically transfers to Google account on sign-in.
+- **Direct Stream URLs:** Browser-native playback with HTTP 206 Byte Ranges.
 
 ## Render Deployment
 1. Connect this repository as a **Render Web Service**.

@@ -39,7 +39,7 @@ export function formatRelativeTime(isoString: string): string {
   }
 }
 
-// Matches Image 2 & Image 3 exact format: "02:09", "Yesterday 19:50", "10/3/2026", "Sep 5, 2026"
+// Matches Image 2 & 3 format: "02:09", "Yesterday 19:50", "10/3/2026", "Sep 5, 2026"
 export function formatUploadTime(isoString: string): string {
   try {
     const date = new Date(isoString);
@@ -60,12 +60,8 @@ export function formatUploadTime(isoString: string): string {
     const minutes = date.getMinutes().toString().padStart(2, '0');
     const timeStr = `${hours}:${minutes}`;
 
-    if (isToday) {
-      return timeStr;
-    }
-    if (isYesterday) {
-      return `Yesterday ${timeStr}`;
-    }
+    if (isToday) return timeStr;
+    if (isYesterday) return `Yesterday ${timeStr}`;
     if (date.getFullYear() === now.getFullYear()) {
       return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
     }
@@ -81,9 +77,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
       await navigator.clipboard.writeText(text);
       return true;
     }
-  } catch {
-    // fallback
-  }
+  } catch {}
 
   try {
     const textArea = document.createElement('textarea');

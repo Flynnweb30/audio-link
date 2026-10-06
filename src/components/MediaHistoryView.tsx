@@ -3,14 +3,12 @@ import {
   Folder, 
   Calendar, 
   Copy, 
-  Check, 
-  ExternalLink, 
   Download, 
   Trash2, 
   Music, 
   Film, 
-  Image as ImageIcon,
   ArrowLeft,
+  ExternalLink,
   FileQuestion
 } from 'lucide-react';
 import { MediaItem } from '../types';
@@ -36,7 +34,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Group items by date buckets matching Image 3
   const dateBuckets = useMemo(() => {
     const buckets: {
       recent: { label: string; key: string; count: number }[];
@@ -107,7 +104,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
     return buckets;
   }, [items]);
 
-  // Filter items by sidebar selection
   const displayedItems = useMemo(() => {
     return items.filter((item) => {
       if (activeSidebarTab === 'folders') {
@@ -133,7 +129,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
 
   return (
     <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-      {/* Top action row */}
       <div className="p-4 border-b border-slate-200 flex items-center justify-between">
         <button
           onClick={onBackToStudio}
@@ -157,9 +152,8 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 min-h-[600px]">
-        {/* Left Sidebar matching Image 2 & Image 3 */}
+        {/* Left Sidebar */}
         <aside className="md:col-span-3 border-r border-slate-100 p-4 space-y-4 bg-slate-50/50">
-          {/* Top Toggle: [Folders] | [Date] */}
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -191,7 +185,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
             </button>
           </div>
 
-          {/* Sub-items for Folders Tab (Image 2) */}
           {activeSidebarTab === 'folders' && (
             <div className="space-y-1.5">
               <button
@@ -230,7 +223,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
             </div>
           )}
 
-          {/* Sub-items for Date Tab (Image 3) */}
           {activeSidebarTab === 'date' && (
             <div className="space-y-4 text-xs">
               <button
@@ -249,7 +241,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
                 <span className="text-slate-500 font-mono text-[11px]">{items.length}</span>
               </button>
 
-              {/* RECENT BUCKET */}
               {dateBuckets.recent.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase px-2">RECENT</p>
@@ -271,7 +262,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
                 </div>
               )}
 
-              {/* THIS MONTH BUCKET */}
               {dateBuckets.thisMonth.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase px-2">THIS MONTH</p>
@@ -293,7 +283,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
                 </div>
               )}
 
-              {/* OLDER BUCKET */}
               {dateBuckets.older.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase px-2">OLDER</p>
@@ -318,12 +307,12 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
           )}
         </aside>
 
-        {/* Right Main Table matching Image 2 & Image 3 */}
+        {/* Right Main Table */}
         <main className="md:col-span-9 overflow-x-auto">
           {displayedItems.length === 0 ? (
             <div className="py-20 text-center">
               <FileQuestion className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <p className="text-sm font-semibold text-slate-800">No media items in this selection</p>
+              <p className="text-sm font-semibold text-slate-800">No media items found</p>
               <p className="text-xs text-slate-400 mt-1">Select another filter or upload a new file.</p>
             </div>
           ) : (
@@ -343,10 +332,8 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
 
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
-                      {/* FILENAME Column */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          {/* Thumbnail Box */}
                           <div 
                             onClick={() => onOpenPlayer(item.id)}
                             className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0 cursor-pointer"
@@ -375,14 +362,12 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
                         </div>
                       </td>
 
-                      {/* EXPIRY Column (Soft Blue Pill: Permanent) */}
                       <td className="py-3 px-4 whitespace-nowrap">
                         <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-700">
                           Permanent
                         </span>
                       </td>
 
-                      {/* ACTIONS Column (Exact "Copy" button replica + utilities) */}
                       <td className="py-3 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <button
@@ -426,7 +411,6 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
                         </div>
                       </td>
 
-                      {/* UPLOAD TIME Column (Image 2/3 format: "02:09", "Yesterday 19:50") */}
                       <td className="py-3 px-4 text-right text-slate-400 font-mono text-[11px] whitespace-nowrap">
                         {formatUploadTime(item.createdAt)}
                       </td>

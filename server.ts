@@ -252,7 +252,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit
+    fileSize: 100 * 1024 * 1024,
   },
 });
 
@@ -330,7 +330,6 @@ async function startServer() {
     next();
   });
 
-  // Centralized Upload API: saves to persistent disk and stores record in metadata.json
   app.post('/api/upload', (req, res) => {
     upload.any()(req, res, (err: any) => {
       if (err instanceof multer.MulterError) {
@@ -400,7 +399,27 @@ async function startServer() {
     });
   });
 
-  // Query media history with optional userId and filters (never forgets converted media)
+  // Seamless guest-to-account migration
+  app.post('/api/migrate-history', (req, res) => {
+    const { fromUserId, toUserId } = req.body || {};
+    if (!fromUserId || !toUserId) {
+      return res.status(400).json({ error: 'fromUserId and toUserId are required' });
+    }
+
+    let count = 0;
+    Object.values(mediaRegistry).forEach((item) => {
+      if (item.userId === fromUserId) {
+        item.userId = toUserId;
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      saveRegistry();
+    }
+    return res.json({ success: true, migrated: count });
+  });
+
   app.get(['/api/media', '/api/audios'], (req, res) => {
     const baseUrl = getBaseUrl(req);
     const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
@@ -409,7 +428,6 @@ async function startServer() {
 
     let items = Object.values(mediaRegistry);
 
-    // If a userId is passed, show their uploaded items AND public items
     if (userId) {
       items = items.filter((item) => !item.userId || item.userId === userId || item.userId === 'public');
     }
@@ -437,7 +455,6 @@ async function startServer() {
     res.json({ items: formatted });
   });
 
-  // Get single media item
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -458,7 +475,6 @@ async function startServer() {
     });
   });
 
-  // Permanent Direct Stream / Display URL
   app.get(['/media/:filename', '/audio/:filename'], (req, res) => {
     const filename = req.params.filename;
     const fileId = path.parse(filename).name;
@@ -474,7 +490,6 @@ async function startServer() {
     streamMediaFile(req, res, filePath, mimeType);
   });
 
-  // Download media
   app.get(['/api/media/:id/download', '/api/audio/:id/download'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -487,7 +502,6 @@ async function startServer() {
     streamMediaFile(req, res, filePath, item.mimeType, item.originalName);
   });
 
-  // Delete media record
   app.delete(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -509,27 +523,6 @@ async function startServer() {
     saveRegistry();
 
     return res.json({ success: true, message: 'Media deleted successfully' });
-  });
-
-    // Endpoint to migrate guest uploads to authenticated Firebase user account
-  app.post('/api/migrate-history', (req, res) => {
-    const { fromUserId, toUserId } = req.body || {};
-    if (!fromUserId || !toUserId) {
-      return res.status(400).json({ error: 'fromUserId and toUserId are required' });
-    }
-
-    let count = 0;
-    Object.values(mediaRegistry).forEach((item) => {
-      if (item.userId === fromUserId) {
-        item.userId = toUserId;
-        count++;
-      }
-    });
-
-    if (count > 0) {
-      saveRegistry();
-    }
-    return res.json({ success: true, migrated: count });
   });
 
   if (process.env.NODE_ENV === 'production') {

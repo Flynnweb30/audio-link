@@ -18,7 +18,6 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
 
   if (items.length === 0) return null;
 
-  // Display top recent items in grid
   const recentItems = items.slice(0, 8);
 
   const handleCopy = async (e: React.MouseEvent, item: MediaItem) => {
@@ -32,7 +31,6 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
 
   return (
     <div className="space-y-4 pt-2">
-      {/* Header bar matching Image 1 */}
       <div className="flex items-center justify-between">
         <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
           <Clock className="w-4 h-4 text-slate-500" />
@@ -49,7 +47,6 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
         </button>
       </div>
 
-      {/* Grid of cards matching Image 1 reference */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {recentItems.map((item) => {
           const isCopied = copiedId === item.id;
@@ -59,7 +56,6 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
               onClick={() => onOpenPlayer(item.id)}
               className="group bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all cursor-pointer overflow-hidden flex flex-col"
             >
-              {/* Card Thumbnail Area */}
               <div className="relative aspect-square w-full bg-slate-100 flex items-center justify-center overflow-hidden border-b border-slate-100">
                 {item.mediaType === 'image' ? (
                   <img
@@ -88,7 +84,6 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
                   </div>
                 )}
 
-                {/* Quick copy overlay button */}
                 <button
                   type="button"
                   onClick={(e) => handleCopy(e, item)}
@@ -99,7 +94,6 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
                 </button>
               </div>
 
-              {/* Card Info Area */}
               <div className="p-3 flex flex-col justify-between flex-1 gap-1">
                 <p className="text-xs font-semibold text-slate-900 truncate" title={item.originalName}>
                   {item.originalName}

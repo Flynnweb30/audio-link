@@ -12,12 +12,10 @@ import {
   Check, 
   ArrowLeft, 
   AlertCircle, 
-  Volume1, 
   QrCode,
   Music,
   Film,
-  Image as ImageIcon,
-  Repeat
+  Image as ImageIcon
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatDuration, formatFileSize, copyToClipboard } from '../utils/formatters';
@@ -42,8 +40,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.85);
   const [isMuted, setIsMuted] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [isLooping, setIsLooping] = useState(false);
 
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [autoplayAttempted, setAutoplayAttempted] = useState(false);
@@ -116,9 +112,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     };
 
     const handleTimeUpdate = () => setCurrentTime(el.currentTime);
-    const handleEnded = () => {
-      if (!isLooping) setIsPlaying(false);
-    };
+    const handleEnded = () => setIsPlaying(false);
 
     el.addEventListener('loadedmetadata', handleLoadedMetadata);
     el.addEventListener('canplay', handleCanPlay);
@@ -131,7 +125,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       el.removeEventListener('timeupdate', handleTimeUpdate);
       el.removeEventListener('ended', handleEnded);
     };
-  }, [mediaItem, autoplayAttempted, isLooping]);
+  }, [mediaItem, autoplayAttempted]);
 
   const togglePlay = () => {
     const el = mediaRef.current;
