@@ -7,32 +7,21 @@ import {
   Mic, 
   Square, 
   Music, 
-  Sparkles,
-  ArrowRight,
-  Film,
-  Image as ImageIcon
+  Film, 
+  Image as ImageIcon 
 } from 'lucide-react';
 import { MediaItem, UploadProgress } from '../types';
 import { formatFileSize } from '../utils/formatters';
+import { getOrCreateUserId } from '../utils/userSession';
 
 interface AudioUploaderProps {
   onUploadSuccess: (item: MediaItem) => void;
-  onSelectSample: (sampleId: string) => void;
 }
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = [
-  '.mp3', '.wav', '.m4a', '.ogg', '.opus', '.flac', '.aac', '.weba',
-  '.mp4', '.webm', '.mov', '.m4v', '.ogv', '.mkv',
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.ico'
-];
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
-export const AudioUploader: React.FC<AudioUploaderProps> = ({
-  onUploadSuccess,
-  onSelectSample,
-}) => {
+export const AudioUploader: React.FC<AudioUploaderProps> = ({ onUploadSuccess }) => {
   const [isDragging, setIsDragging] = useState(false);
-  const [activeCategoryFilter, setActiveCategoryFilter] = useState<'all' | 'audio' | 'video' | 'image'>('all');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({
     state: 'idle',
@@ -49,30 +38,14 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const validateFile = (file: File): string | null => {
-    const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-    const isMimeValid = file.type.startsWith('audio/') || file.type.startsWith('video/') || file.type.startsWith('image/');
-
-    if (!isMimeValid && !ALLOWED_EXTENSIONS.includes(ext)) {
-      return `Unsupported file format "${ext || file.type}". Supported: Audio (MP3, WAV, M4A, OGG), Video (MP4, WebM, MOV), Image (PNG, JPG, WebP, SVG).`;
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
-      return `File size (${formatFileSize(file.size)}) exceeds maximum limit of 100MB.`;
-    }
-
-    if (file.size === 0) {
-      return 'The selected file is empty (0 bytes).';
-    }
-
-    return null;
-  };
-
   const handleFileSelection = (file: File) => {
     setValidationError(null);
-    const error = validateFile(file);
-    if (error) {
-      setValidationError(error);
+    if (file.size > MAX_FILE_SIZE) {
+      setValidationError(`File size (${formatFileSize(file.size)}) exceeds maximum limit of 100MB.`);
+      return;
+    }
+    if (file.size === 0) {
+      setValidationError('The selected file is empty (0 bytes).');
       return;
     }
 
@@ -87,11 +60,15 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       uploadedMedia: null,
     });
 
+    const userId = getOrCreateUserId();
     const formData = new FormData();
     formData.append('media', file);
+    formData.append('userId', userId);
+    formData.append('folder', 'public');
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload', true);
+    xhr.setRequestHeader('X-User-Id', userId);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -119,7 +96,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           setUploadProgress({
             state: 'error',
             percentage: 0,
-            errorMessage: 'Malformed response received from media server.',
+            errorMessage: 'Malformed response received from server.',
             uploadedMedia: null,
           });
         }
@@ -128,9 +105,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         try {
           const res = JSON.parse(xhr.responseText);
           if (res.error) errorMsg = res.error;
-        } catch {
-          // fallback
-        }
+        } catch {}
         setUploadProgress({
           state: 'error',
           percentage: 0,
@@ -183,9 +158,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = () => {
@@ -213,66 +186,14 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
     }
   };
 
   const isUploading = uploadProgress.state === 'uploading';
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-center gap-2">
-        <button
-          type="button"
-          onClick={() => setActiveCategoryFilter('all')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-            activeCategoryFilter === 'all'
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          All Media Formats
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveCategoryFilter('audio')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-            activeCategoryFilter === 'audio'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <Music className="w-3.5 h-3.5" />
-          <span>Audio (MP3, WAV)</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveCategoryFilter('video')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-            activeCategoryFilter === 'video'
-              ? 'bg-violet-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <Film className="w-3.5 h-3.5" />
-          <span>Video (MP4, WebM)</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveCategoryFilter('image')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-            activeCategoryFilter === 'image'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <ImageIcon className="w-3.5 h-3.5" />
-          <span>Image (PNG, JPG, SVG)</span>
-        </button>
-      </div>
-
+    <div className="space-y-4">
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -286,15 +207,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept={
-            activeCategoryFilter === 'audio'
-              ? 'audio/*,.mp3,.wav,.m4a,.ogg,.opus,.flac,.aac,.weba'
-              : activeCategoryFilter === 'video'
-              ? 'video/*,.mp4,.webm,.mov,.m4v,.ogv'
-              : activeCategoryFilter === 'image'
-              ? 'image/*,.png,.jpg,.jpeg,.gif,.webp,.svg,.avif'
-              : 'audio/*,video/*,image/*,.mp3,.wav,.m4a,.ogg,.flac,.mp4,.webm,.mov,.png,.jpg,.jpeg,.gif,.webp,.svg'
-          }
+          accept="audio/*,video/*,image/*"
           className="hidden"
           onChange={(e) => {
             if (e.target.files && e.target.files.length > 0) {
@@ -313,10 +226,10 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           </div>
 
           <h2 className="text-xl font-bold text-slate-900 mb-1">
-            {isUploading ? 'Uploading and generating direct stream URL...' : 'Drop your Audio, Video, or Image here'}
+            {isUploading ? 'Uploading and generating direct stream URL...' : 'Drop All Media Here'}
           </h2>
           <p className="text-sm text-slate-500 mb-6">
-            Supports MP3, WAV, MP4, WebM, PNG, JPG, SVG up to 100MB. Instantly creates a permanent direct stream URL with byte-range seeking.
+            Supports Audio (MP3, WAV), Video (MP4, WebM) &amp; Images (PNG, JPG, AVIF, SVG) up to 100MB.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
@@ -327,7 +240,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
               className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 inline-flex items-center gap-2"
             >
               <FileAudio className="w-4 h-4" />
-              <span>Browse Media Files</span>
+              <span>Browse Media</span>
             </button>
 
             {!isRecording ? (
@@ -347,7 +260,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                 className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-xl transition-all inline-flex items-center gap-2 animate-pulse"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
-                <span>Stop & Upload ({recordSeconds}s)</span>
+                <span>Stop &amp; Upload ({recordSeconds}s)</span>
               </button>
             )}
           </div>
@@ -386,89 +299,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
               </div>
             </div>
           )}
-        </div>
-      </div>
-
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-        <div className="mb-4">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            Quick Test: Generate URL from Pre-Loaded Studio Media
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Select a demo asset below to test streaming, browser playback, and image display immediately.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <button
-            type="button"
-            onClick={() => onSelectSample('aud_sample_acoustic_chime')}
-            className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 hover:border-indigo-200 rounded-2xl text-left transition-all group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
-                <Music className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                  Acoustic Chimes
-                </p>
-                <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                  <span className="font-mono">WAV</span>
-                  <span>•</span>
-                  <span>4.5s</span>
-                </div>
-              </div>
-            </div>
-            <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-all" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelectSample('aud_sample_lofi_pulse')}
-            className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 hover:border-indigo-200 rounded-2xl text-left transition-all group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold">
-                <Music className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                  Lofi Pulse
-                </p>
-                <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                  <span className="font-mono">WAV</span>
-                  <span>•</span>
-                  <span>5.0s</span>
-                </div>
-              </div>
-            </div>
-            <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-all" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelectSample('img_sample_modern_gradient')}
-            className="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-200 rounded-2xl text-left transition-all group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-                <ImageIcon className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-900 group-hover:text-emerald-600 transition-colors">
-                  Gradient Banner
-                </p>
-                <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                  <span className="font-mono">SVG</span>
-                  <span>•</span>
-                  <span>Vector</span>
-                </div>
-              </div>
-            </div>
-            <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-all" />
-          </button>
         </div>
       </div>
     </div>

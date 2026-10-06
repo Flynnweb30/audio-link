@@ -26,6 +26,8 @@ export interface StoredMediaItem {
   mimeType: string;
   size: number;
   createdAt: string;
+  userId?: string;
+  folder?: string;
   duration?: number;
   width?: number;
   height?: number;
@@ -104,6 +106,8 @@ function generateSynthesizedWav(frequencySequence: number[], durationSeconds: nu
 }
 
 function seedSampleMedia(): void {
+  let changed = false;
+
   if (!mediaRegistry['aud_sample_acoustic_chime']) {
     const sample1Id = 'aud_sample_acoustic_chime';
     const sample1Filename = `${sample1Id}.wav`;
@@ -119,8 +123,10 @@ function seedSampleMedia(): void {
       mimeType: 'audio/wav',
       size: buf1.length,
       createdAt: new Date().toISOString(),
+      folder: 'public',
       duration: 4.5,
     };
+    changed = true;
   }
 
   if (!mediaRegistry['aud_sample_lofi_pulse']) {
@@ -138,8 +144,10 @@ function seedSampleMedia(): void {
       mimeType: 'audio/wav',
       size: buf2.length,
       createdAt: new Date(Date.now() - 3600000).toISOString(),
+      folder: 'public',
       duration: 5.0,
     };
+    changed = true;
   }
 
   if (!mediaRegistry['img_sample_modern_gradient']) {
@@ -169,12 +177,16 @@ function seedSampleMedia(): void {
       mimeType: 'image/svg+xml',
       size: Buffer.byteLength(svgContent, 'utf-8'),
       createdAt: new Date(Date.now() - 7200000).toISOString(),
+      folder: 'public',
       width: 1200,
       height: 630,
     };
+    changed = true;
   }
 
-  saveRegistry();
+  if (changed) {
+    saveRegistry();
+  }
 }
 
 seedSampleMedia();
@@ -213,15 +225,9 @@ function detectMediaType(ext: string, mime?: string): { mediaType: MediaType; mi
     '.ico': 'image/x-icon',
   };
 
-  if (videoExtMap[cleanExt]) {
-    return { mediaType: 'video', mimeType: videoExtMap[cleanExt] };
-  }
-  if (imageExtMap[cleanExt]) {
-    return { mediaType: 'image', mimeType: imageExtMap[cleanExt] };
-  }
-  if (audioExtMap[cleanExt]) {
-    return { mediaType: 'audio', mimeType: audioExtMap[cleanExt] };
-  }
+  if (videoExtMap[cleanExt]) return { mediaType: 'video', mimeType: videoExtMap[cleanExt] };
+  if (imageExtMap[cleanExt]) return { mediaType: 'image', mimeType: imageExtMap[cleanExt] };
+  if (audioExtMap[cleanExt]) return { mediaType: 'audio', mimeType: audioExtMap[cleanExt] };
 
   if (mime) {
     if (mime.startsWith('video/')) return { mediaType: 'video', mimeType: mime };
@@ -243,30 +249,10 @@ const storage = multer.diskStorage({
   },
 });
 
-const ALLOWED_EXTENSIONS = new Set([
-  '.mp3', '.wav', '.m4a', '.ogg', '.opus', '.flac', '.aac', '.weba',
-  '.mp4', '.webm', '.mov', '.m4v', '.ogv', '.mkv',
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.ico'
-]);
-
 const upload = multer({
   storage,
   limits: {
-    fileSize: 100 * 1024 * 1024,
-  },
-  fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const mime = file.mimetype.toLowerCase();
-
-    const isAudio = mime.startsWith('audio/') || ['.mp3', '.wav', '.m4a', '.ogg', '.opus', '.flac', '.aac', '.weba'].includes(ext);
-    const isVideo = mime.startsWith('video/') || ['.mp4', '.webm', '.mov', '.m4v', '.ogv', '.mkv'].includes(ext);
-    const isImage = mime.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.ico'].includes(ext);
-
-    if (isAudio || isVideo || isImage || ALLOWED_EXTENSIONS.has(ext)) {
-      cb(null, true);
-    } else {
-      cb(new Error(`Unsupported file type: ${ext || mime}. Allowed: Audio (MP3, WAV, M4A, OGG), Video (MP4, WebM, MOV), Image (PNG, JPG, WebP, SVG).`));
-    }
+    fileSize: 100 * 1024 * 1024, // 100MB limit
   },
 });
 
@@ -337,13 +323,14 @@ async function startServer() {
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization, X-User-Id');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(200);
     }
     next();
   });
 
+  // Centralized Upload API: saves to persistent disk and stores record in metadata.json
   app.post('/api/upload', (req, res) => {
     upload.any()(req, res, (err: any) => {
       if (err instanceof multer.MulterError) {
@@ -362,6 +349,9 @@ async function startServer() {
         return res.status(400).json({ error: 'No media file provided in request.' });
       }
 
+      const userId = (req.headers['x-user-id'] as string) || (req.body?.userId as string) || 'public';
+      const folder = (req.body?.folder as string) || 'public';
+
       const fileId = path.parse(file.filename).name;
       const ext = path.extname(file.filename);
       const { mediaType, mimeType } = detectMediaType(ext, file.mimetype);
@@ -374,6 +364,8 @@ async function startServer() {
         mimeType,
         size: file.size,
         createdAt: new Date().toISOString(),
+        userId,
+        folder,
       };
 
       mediaRegistry[fileId] = mediaItem;
@@ -408,13 +400,26 @@ async function startServer() {
     });
   });
 
+  // Query media history with optional userId and filters (never forgets converted media)
   app.get(['/api/media', '/api/audios'], (req, res) => {
     const baseUrl = getBaseUrl(req);
+    const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
     const filterType = req.query.type as string | undefined;
+    const filterFolder = req.query.folder as string | undefined;
 
     let items = Object.values(mediaRegistry);
+
+    // If a userId is passed, show their uploaded items AND public items
+    if (userId) {
+      items = items.filter((item) => !item.userId || item.userId === userId || item.userId === 'public');
+    }
+
     if (filterType && ['audio', 'video', 'image'].includes(filterType)) {
       items = items.filter((item) => item.mediaType === filterType);
+    }
+
+    if (filterFolder && filterFolder !== 'all') {
+      items = items.filter((item) => (item.folder || 'public') === filterFolder);
     }
 
     const formatted = items
@@ -432,6 +437,7 @@ async function startServer() {
     res.json({ items: formatted });
   });
 
+  // Get single media item
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -452,6 +458,7 @@ async function startServer() {
     });
   });
 
+  // Permanent Direct Stream / Display URL
   app.get(['/media/:filename', '/audio/:filename'], (req, res) => {
     const filename = req.params.filename;
     const fileId = path.parse(filename).name;
@@ -467,6 +474,7 @@ async function startServer() {
     streamMediaFile(req, res, filePath, mimeType);
   });
 
+  // Download media
   app.get(['/api/media/:id/download', '/api/audio/:id/download'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -479,6 +487,7 @@ async function startServer() {
     streamMediaFile(req, res, filePath, item.mimeType, item.originalName);
   });
 
+  // Delete media record
   app.delete(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -521,7 +530,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`MediaLink Web Service running on http://0.0.0.0:${PORT}`);
-    console.log(`Media storage mounted at: ${UPLOADS_DIR}`);
+    console.log(`Persistent storage mounted at: ${UPLOADS_DIR}`);
   });
 }
 

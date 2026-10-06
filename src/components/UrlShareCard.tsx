@@ -49,9 +49,7 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
 
     const onTimeUpdate = () => setCurrentTime(el.currentTime);
     const onLoadedMetadata = () => {
-      if (el.duration && !isNaN(el.duration)) {
-        setDuration(el.duration);
-      }
+      if (el.duration && !isNaN(el.duration)) setDuration(el.duration);
     };
     const onEnded = () => setIsPlaying(false);
 
@@ -138,7 +136,7 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
             <span>•</span>
             <span className="font-mono tabular-nums">{formatFileSize(media.size)}</span>
             <span>•</span>
-            <span className="text-emerald-400 font-semibold">HTTP 206 Byte-Range Enabled</span>
+            <span className="text-emerald-400 font-semibold">Permanent Link</span>
           </div>
         </div>
 
@@ -210,20 +208,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
             </div>
           ) : media.mediaType === 'video' ? (
             <div>
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Film className="w-3.5 h-3.5 text-violet-600" />
-                  Video Stream Preview
-                </span>
-                <a
-                  href={`/api/media/${media.id}/download`}
-                  download={media.originalName}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download</span>
-                </a>
-              </div>
               <div className="relative rounded-xl overflow-hidden bg-black flex items-center justify-center max-h-96">
                 <video
                   ref={videoRef}
@@ -237,20 +221,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
             </div>
           ) : (
             <div>
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-                  Image Display Preview
-                </span>
-                <a
-                  href={`/api/media/${media.id}/download`}
-                  download={media.originalName}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download</span>
-                </a>
-              </div>
               <div className="rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center p-2">
                 <img
                   src={media.directUrl}
@@ -268,7 +238,7 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                 <label className="text-xs font-bold text-slate-900">
-                  Direct Raw {media.mediaType.toUpperCase()} URL (Streams/Displays in Browser, Ends in .{media.filename.split('.').pop()})
+                  Direct Raw {media.mediaType.toUpperCase()} URL (Streams in Browser, Ends in .{media.filename.split('.').pop()})
                 </label>
               </div>
               <span className="text-[11px] text-emerald-700 font-semibold">
@@ -306,15 +276,12 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
                   target="_blank"
                   rel="noreferrer"
                   className="p-2 border border-slate-300 hover:border-slate-400 bg-white text-slate-700 hover:text-slate-900 rounded-xl transition-colors"
-                  title="Open Raw File in New Tab"
+                  title="Open in New Tab"
                 >
                   <ExternalLink className="w-4 h-4" />
                 </a>
               </div>
             </div>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              When opened in any browser, this URL directly streams audio/video or displays the image in the browser window without forcing a download dialog.
-            </p>
           </div>
 
           <div className="p-4 border border-indigo-200 bg-indigo-50/40 rounded-2xl space-y-2">
@@ -322,7 +289,7 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
                 <label className="text-xs font-bold text-slate-900">
-                  Shareable Web Player Link (Autoplay Ready + Interactive UI)
+                  Shareable Web Player Link (Autoplay Ready)
                 </label>
               </div>
             </div>
@@ -340,70 +307,23 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
                   onClick={() => handleCopy(media.playerUrl, 'player')}
                   className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
                 >
-                  {copiedType === 'player' ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-300" />
-                      <span>Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy Player Link</span>
-                    </>
-                  )}
+                  {copiedType === 'player' ? 'Copied!' : 'Copy Link'}
                 </button>
                 <button
                   type="button"
                   onClick={() => onOpenPlayer(media.id)}
                   className="p-2 border border-slate-300 hover:border-slate-400 bg-white text-slate-700 hover:text-slate-900 rounded-xl transition-colors"
-                  title="Open Player Page"
                 >
                   <ExternalLink className="w-4 h-4" />
                 </button>
                 <button
                   type="button"
-                  onClick={() => openQr(media.playerUrl, 'Shareable Player QR')}
+                  onClick={() => openQr(media.playerUrl, 'Shareable QR')}
                   className="p-2 border border-slate-300 hover:border-slate-400 bg-white text-slate-700 hover:text-slate-900 rounded-xl transition-colors"
-                  title="Show Mobile QR Code"
                 >
                   <QrCode className="w-4 h-4" />
                 </button>
               </div>
-            </div>
-          </div>
-
-          <div className="p-4 border border-slate-200 bg-white rounded-2xl space-y-2">
-            <div className="flex items-center gap-2">
-              <Code className="w-3.5 h-3.5 text-slate-500" />
-              <label className="text-xs font-semibold text-slate-900">
-                HTML Embed Snippet
-              </label>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <input
-                type="text"
-                readOnly
-                value={embedCode}
-                className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-mono select-all truncate"
-              />
-              <button
-                type="button"
-                onClick={() => handleCopy(embedCode, 'embed')}
-                className="flex items-center justify-center gap-1.5 px-3.5 py-2 border border-slate-300 hover:border-slate-400 bg-white text-slate-800 rounded-xl text-xs font-medium transition-colors whitespace-nowrap"
-              >
-                {copiedType === 'embed' ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy HTML</span>
-                  </>
-                )}
-              </button>
             </div>
           </div>
         </div>

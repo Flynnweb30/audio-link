@@ -48,7 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab, onNewUp
               currentTab === 'history' ? 'text-slate-900 font-bold border-b-2 border-slate-900 pb-0.5' : ''
             }`}
           >
-            Media Registry
+            All History
           </button>
         </nav>
 

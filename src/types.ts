@@ -8,6 +8,8 @@ export interface MediaItem {
   mimeType: string;
   size: number;
   createdAt: string;
+  userId?: string;
+  folder?: string;
   duration?: number;
   width?: number;
   height?: number;

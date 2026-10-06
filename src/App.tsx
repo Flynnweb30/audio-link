@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { AudioUploader } from './components/AudioUploader';
 import { UrlShareCard } from './components/UrlShareCard';
-import { RecentAudiosList } from './components/RecentAudiosList';
+import { RecentUploadsGrid } from './components/RecentUploadsGrid';
+import { MediaHistoryView } from './components/MediaHistoryView';
 import { SharePlayerView } from './components/SharePlayerView';
-import { SystemFeatures } from './components/SystemFeatures';
 import { MediaItem } from './types';
+import { getOrCreateUserId } from './utils/userSession';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'upload' | 'history' | 'player'>('upload');
-  const [activePlayerAudioId, setActivePlayerAudioId] = useState<string | null>(null);
+  const [activePlayerMediaId, setActivePlayerMediaId] = useState<string | null>(null);
   const [lastUploadedMedia, setLastUploadedMedia] = useState<MediaItem | null>(null);
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
 
@@ -18,10 +19,10 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const playId = params.get('play') || params.get('audio') || params.get('media');
       if (playId) {
-        setActivePlayerAudioId(playId);
+        setActivePlayerMediaId(playId);
         setCurrentTab('player');
       } else {
-        setActivePlayerAudioId(null);
+        setActivePlayerMediaId(null);
         if (currentTab === 'player') {
           setCurrentTab('upload');
         }
@@ -35,7 +36,10 @@ export default function App() {
 
   const fetchMedia = async () => {
     try {
-      const res = await fetch('/api/media');
+      const userId = getOrCreateUserId();
+      const res = await fetch(`/api/media?userId=${encodeURIComponent(userId)}`, {
+        headers: { 'X-User-Id': userId },
+      });
       if (res.ok) {
         const data = await res.json();
         setMediaList(data.items || []);
@@ -58,49 +62,33 @@ export default function App() {
   };
 
   const handleOpenPlayer = (id: string) => {
-    setActivePlayerAudioId(id);
+    setActivePlayerMediaId(id);
     setCurrentTab('player');
     const newUrl = `${window.location.pathname}?play=${id}`;
     window.history.pushState({ playId: id }, '', newUrl);
   };
 
   const handleBackToStudio = () => {
-    setActivePlayerAudioId(null);
+    setActivePlayerMediaId(null);
     setCurrentTab('upload');
     const cleanUrl = window.location.pathname;
     window.history.pushState({}, '', cleanUrl);
   };
 
   const handleDeleteMedia = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this media item? Its direct URL will stop streaming.')) {
+    if (!window.confirm('Are you sure you want to delete this file? Its direct URL will stop streaming.')) {
       return;
     }
 
     try {
       const res = await fetch(`/api/media/${id}`, { method: 'DELETE' });
       if (res.ok) {
-        if (lastUploadedMedia?.id === id) {
-          setLastUploadedMedia(null);
-        }
-        if (activePlayerAudioId === id) {
-          handleBackToStudio();
-        }
+        if (lastUploadedMedia?.id === id) setLastUploadedMedia(null);
+        if (activePlayerMediaId === id) handleBackToStudio();
         fetchMedia();
       }
     } catch (err) {
       console.error('Failed to delete media:', err);
-    }
-  };
-
-  const handleSelectSample = (sampleId: string) => {
-    const found = mediaList.find((a) => a.id === sampleId);
-    if (found) {
-      setLastUploadedMedia(found);
-      setTimeout(() => {
-        window.scrollTo({ top: 120, behavior: 'smooth' });
-      }, 100);
-    } else {
-      handleOpenPlayer(sampleId);
     }
   };
 
@@ -124,20 +112,19 @@ export default function App() {
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
-        {currentTab === 'player' && activePlayerAudioId ? (
+        {currentTab === 'player' && activePlayerMediaId ? (
           <SharePlayerView
-            audioId={activePlayerAudioId}
+            audioId={activePlayerMediaId}
             onBackToStudio={handleBackToStudio}
           />
         ) : currentTab === 'history' ? (
-          <div className="space-y-6">
-            <RecentAudiosList
-              items={mediaList}
-              onOpenPlayer={handleOpenPlayer}
-              onDeleteAudio={handleDeleteMedia}
-              onRefresh={fetchMedia}
-            />
-          </div>
+          <MediaHistoryView
+            items={mediaList}
+            onOpenPlayer={handleOpenPlayer}
+            onDeleteMedia={handleDeleteMedia}
+            onBackToStudio={handleBackToStudio}
+            onRefresh={fetchMedia}
+          />
         ) : (
           <div className="space-y-8">
             {lastUploadedMedia ? (
@@ -152,40 +139,31 @@ export default function App() {
                   <h3 className="text-sm font-semibold text-slate-800 mb-3">
                     Upload Another Media File
                   </h3>
-                  <AudioUploader
-                    onUploadSuccess={handleUploadSuccess}
-                    onSelectSample={handleSelectSample}
-                  />
+                  <AudioUploader onUploadSuccess={handleUploadSuccess} />
                 </div>
               </div>
             ) : (
-              <div className="space-y-8">
+              <div className="space-y-6">
                 <div className="max-w-2xl">
                   <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
                     Audio, Video &amp; Image to Direct Stream URL
                   </h1>
                   <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                    Convert MP3, WAV, MP4, WebM, PNG, JPG, or SVG files into permanent direct streaming URLs with byte-range scrub seeking and auto-playing web player links.
+                    Convert MP3, WAV, MP4, WebM, PNG, JPG, or AVIF files into permanent direct streaming URLs with byte-range scrub seeking.
                   </p>
                 </div>
 
-                <AudioUploader
-                  onUploadSuccess={handleUploadSuccess}
-                  onSelectSample={handleSelectSample}
+                {/* Primary Upload Area */}
+                <AudioUploader onUploadSuccess={handleUploadSuccess} />
+
+                {/* Image 1 Reference: Recent Uploads Grid Below Drop Area */}
+                <RecentUploadsGrid
+                  items={mediaList}
+                  onOpenPlayer={handleOpenPlayer}
+                  onViewAllHistory={() => setCurrentTab('history')}
                 />
               </div>
             )}
-
-            {mediaList.length > 0 && !lastUploadedMedia && (
-              <RecentAudiosList
-                items={mediaList}
-                onOpenPlayer={handleOpenPlayer}
-                onDeleteAudio={handleDeleteMedia}
-                onRefresh={fetchMedia}
-              />
-            )}
-
-            <SystemFeatures />
           </div>
         )}
       </main>
@@ -193,8 +171,8 @@ export default function App() {
       <footer className="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-500">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p>© {new Date().getFullYear()} MediaLink. Direct Audio, Video &amp; Image URLs with RFC 206 Range streaming.</p>
-          <div className="flex items-center gap-4 text-slate-600">
-            <span>Audio · Video · Image</span>
+          <div className="flex items-center gap-4 text-slate-600 font-medium">
+            <span>Audio • Video • Image</span>
             <span>•</span>
             <span>Max 100MB</span>
           </div>

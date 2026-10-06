@@ -1,13 +1,12 @@
 # MediaLink - Audio, Video & Image Direct URL Web Service
 
-Production-ready media upload web service engineered for deployment on Render. Convert MP3, WAV, MP4, WebM, PNG, JPG, SVG, and more into permanent, direct streaming URLs ending in the file extension (e.g., `https://audiolink.onrender.com/media/media_1742083921.mp4`).
+Production-ready media upload web service engineered for deployment on Render. Convert MP3, WAV, MP4, WebM, PNG, JPG, AVIF, SVG, and more into permanent, direct streaming URLs ending in the file extension (e.g., `https://audiolink.onrender.com/media/media_1742083921.avif`).
 
 ## Features
-- **Audio, Video & Image Support:** Centralized upload and streaming engine for all media types.
-- **Direct Stream URLs:** Sends `Content-Disposition: inline` so browsers play audio/video and display images natively instead of prompting a file download.
+- **Upload & Direct URLs:** Supports Audio, Video, and Image files with `Content-Disposition: inline`.
+- **Per-User Conversion History:** Shows recent uploads on the upload studio (Image 1) and comprehensive history table with folder and date filters (Image 2 & 3).
 - **HTTP 206 Byte Ranges:** Full partial content support for scrub seeking, Safari, and lock-screen controls.
-- **Autoplay & Fallback:** Instant autoplay on link open with an interactive tap-to-play banner when restricted by browser autoplay policies.
-- **Embeddable:** Provides ready-to-paste `<audio>`, `<video>`, and `<img>` tags plus mobile QR codes.
+- **Render Web Service Ready:** Configured with Node.js runtime, build script, and persistent storage.
 
 ## Render Deployment
 1. Connect this repository as a **Render Web Service**.

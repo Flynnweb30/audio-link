@@ -96,7 +96,7 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
         </div>
 
         <p className="text-[11px] text-slate-400 text-center mt-3">
-          Scan with your phone camera to stream and test media on mobile.
+          Scan with your phone camera to test playback and streaming instantly.
         </p>
       </div>
     </div>
