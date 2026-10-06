@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { X, Copy, Check, Smartphone } from 'lucide-react';
+import { X, Copy, Check, Smartphone, ExternalLink } from 'lucide-react';
 import { copyToClipboard } from '../utils/formatters';
 
 interface QrCodeModalProps {
@@ -48,7 +48,9 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-150">
+      <div 
+        className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-150"
+      >
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-md"
@@ -61,16 +63,17 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
           <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 mb-2">
             <Smartphone className="w-5 h-5" />
           </div>
-          <h3 className="text-base font-bold text-slate-900">{title}</h3>
-          {subtitle && <p className="text-xs text-slate-500 mt-0.5 truncate">{subtitle}</p>}
+          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
         </div>
 
-        <div className="flex justify-center my-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+        {/* QR container */}
+        <div className="flex justify-center my-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
           {qrDataUrl ? (
             <img 
               src={qrDataUrl} 
-              alt="QR Code for Media URL" 
-              className="w-56 h-56 rounded-lg shadow-xs" 
+              alt="QR Code for Audio URL" 
+              className="w-56 h-56 rounded-md shadow-xs" 
             />
           ) : (
             <div className="w-56 h-56 flex items-center justify-center text-xs text-slate-400">
@@ -88,7 +91,7 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
           />
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 transition-colors whitespace-nowrap"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800 transition-colors whitespace-nowrap"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
             <span>{copied ? 'Copied' : 'Copy'}</span>
@@ -96,7 +99,7 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
         </div>
 
         <p className="text-[11px] text-slate-400 text-center mt-3">
-          Scan with your phone camera to test playback and streaming instantly.
+          Scan with your phone camera to test playback instantly on iOS or Android.
         </p>
       </div>
     </div>

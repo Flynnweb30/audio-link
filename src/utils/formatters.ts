@@ -1,12 +1,9 @@
 export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0.00 MB';
+  if (bytes === 0) return '0 B';
   const k = 1024;
-  if (bytes < k * k) {
-    const kb = bytes / k;
-    return `${kb.toFixed(1)} KB`;
-  }
-  const mb = bytes / (k * k);
-  return `${mb.toFixed(2)} MB`;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
 export function formatDuration(seconds: number): string {
@@ -31,40 +28,8 @@ export function formatRelativeTime(isoString: string): string {
     if (diffSecs < 60) return 'Just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays}d ago`;
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  } catch {
-    return 'Recently';
-  }
-}
-
-export function formatUploadTime(isoString: string): string {
-  try {
-    const date = new Date(isoString);
-    const now = new Date();
-    const isToday =
-      date.getDate() === now.getDate() &&
-      date.getMonth() === now.getMonth() &&
-      date.getFullYear() === now.getFullYear();
-
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday =
-      date.getDate() === yesterday.getDate() &&
-      date.getMonth() === yesterday.getMonth() &&
-      date.getFullYear() === yesterday.getFullYear();
-
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    const timeStr = `${hours}:${minutes}`;
-
-    if (isToday) return timeStr;
-    if (isYesterday) return `Yesterday ${timeStr}`;
-    if (date.getFullYear() === now.getFullYear()) {
-      return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
-    }
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
     return 'Recently';
   }
@@ -76,7 +41,9 @@ export async function copyToClipboard(text: string): Promise<boolean> {
       await navigator.clipboard.writeText(text);
       return true;
     }
-  } catch {}
+  } catch {
+    // Fallback below
+  }
 
   try {
     const textArea = document.createElement('textarea');

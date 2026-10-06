@@ -1,10 +1,20 @@
 services:
   - type: web
-    name: medialink
+    name: audiolink-media-service
     env: node
     plan: free
     buildCommand: npm install && npm run build
     startCommand: npm start
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 10000
+      - key: APP_URL
+        sync: false
+    # If on a paid plan with persistent disk, uncomment the disk configuration:
+    # disk:
+    #   name: media-storage
+    #   mountPath: /var/data
+    #   sizeGB: 10

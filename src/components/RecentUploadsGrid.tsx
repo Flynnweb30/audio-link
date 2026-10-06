@@ -1,180 +1,116 @@
-import React, { useState } from 'react';
-import { Clock, ArrowRight, Music, Film, Copy, Check, X, Trash2 } from 'lucide-react';
+import React from 'react';
+import { History, ArrowRight, Play, Music, Video, Image as ImageIcon } from 'lucide-react';
 import { MediaItem } from '../types';
-import { formatFileSize, formatRelativeTime, copyToClipboard } from '../utils/formatters';
+import { formatFileSize, formatRelativeTime } from '../utils/formatters';
 
 interface RecentUploadsGridProps {
   items: MediaItem[];
-  onOpenPlayer: (id: string) => void;
-  onViewAllHistory: () => void;
-  onDeleteMedia: (id: string) => void;
+  onOpenHistory: () => void;
+  onSelectItem: (item: MediaItem) => void;
 }
 
 export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
   items,
-  onOpenPlayer,
-  onViewAllHistory,
-  onDeleteMedia,
+  onOpenHistory,
+  onSelectItem,
 }) => {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // Show the most recent 8 items like in the screenshot
+  const displayItems = items.slice(0, 8);
 
-  if (items.length === 0) return null;
-
-  const recentItems = items.slice(0, 8);
-
-  const handleCopy = async (e: React.MouseEvent, item: MediaItem) => {
-    e.stopPropagation();
-    const success = await copyToClipboard(item.directUrl);
-    if (success) {
-      setCopiedId(item.id);
-      setTimeout(() => setCopiedId(null), 2000);
-    }
-  };
-
-  const handleDeleteClick = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    setDeleteConfirmId(id);
-  };
-
-  const confirmDelete = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    onDeleteMedia(id);
-    setDeleteConfirmId(null);
-  };
-
-  const cancelDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDeleteConfirmId(null);
-  };
+  if (displayItems.length === 0) return null;
 
   return (
-    <div className="space-y-4 pt-2">
+    <section className="space-y-4 pt-4">
+      {/* Header matching Image 1: Clock icon + "Recent free image hosting uploads" + "View all history >" */}
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-          <Clock className="w-4 h-4 text-slate-500" />
-          <span>Recent converted uploads</span>
-        </h2>
+        <div className="flex items-center gap-2">
+          <History className="w-4 h-4 text-slate-700" />
+          <h2 className="text-sm font-semibold text-slate-900 tracking-tight">
+            Recent media hosting uploads
+          </h2>
+        </div>
 
         <button
           type="button"
-          onClick={onViewAllHistory}
-          className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-colors"
+          onClick={onOpenHistory}
+          className="text-xs font-semibold text-teal-600 hover:text-teal-700 hover:underline flex items-center gap-1 transition-colors"
         >
           <span>View all history</span>
-          <ArrowRight className="w-3.5 h-3.5" />
+          <span aria-hidden="true">&gt;</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {recentItems.map((item) => {
-          const isCopied = copiedId === item.id;
-          const isDeleting = deleteConfirmId === item.id;
-
-          return (
-            <div
-              key={item.id}
-              onClick={() => onOpenPlayer(item.id)}
-              className="group bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all cursor-pointer overflow-hidden flex flex-col relative"
-            >
-              {/* Card Thumbnail Area */}
-              <div className="relative aspect-square w-full bg-slate-100 flex items-center justify-center overflow-hidden border-b border-slate-100">
-                {item.mediaType === 'image' ? (
-                  <img
+      {/* 4-column Grid matching Image 1 */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
+        {displayItems.map((item) => (
+          <div
+            key={item.id}
+            onClick={() => onSelectItem(item)}
+            className="group bg-white border border-slate-200/90 rounded-2xl p-2.5 sm:p-3 shadow-xs hover:shadow-md hover:border-slate-300 transition-all cursor-pointer flex flex-col justify-between"
+          >
+            {/* Thumbnail Preview Area */}
+            <div className="w-full aspect-square rounded-xl bg-slate-100 overflow-hidden relative mb-2.5 flex items-center justify-center border border-slate-100">
+              {item.mediaType === 'image' ? (
+                <img
+                  src={item.directUrl}
+                  alt={item.originalName}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                  loading="lazy"
+                  onError={(e) => {
+                    // Fallback to stylized SVG placeholder if thumbnail fails
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : item.mediaType === 'video' ? (
+                <div className="w-full h-full bg-slate-900 flex items-center justify-center relative group-hover:bg-slate-800 transition-colors">
+                  <video
                     src={item.directUrl}
-                    alt={item.originalName}
-                    loading="lazy"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-cover opacity-80"
+                    muted
+                    preload="metadata"
                   />
-                ) : item.mediaType === 'video' ? (
-                  <div className="relative w-full h-full bg-slate-900 flex items-center justify-center">
-                    <video
-                      src={item.directUrl}
-                      preload="metadata"
-                      muted
-                      className="w-full h-full object-cover opacity-80"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                      <Film className="w-8 h-8 text-white/90 drop-shadow-sm" />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+                    <div className="w-8 h-8 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-sm">
+                      <Play className="w-4 h-4 fill-current ml-0.5" />
                     </div>
                   </div>
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-indigo-50 to-slate-100 flex items-center justify-center p-4">
-                    <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-xs group-hover:scale-110 transition-transform">
-                      <Music className="w-6 h-6" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Top overlay action buttons: Copy & Red X Delete */}
-                <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={(e) => handleCopy(e, item)}
-                    title="Copy Direct URL"
-                    className="p-1.5 rounded-lg bg-white/90 hover:bg-white text-slate-700 shadow-xs backdrop-blur-xs"
-                  >
-                    {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteClick(e, item.id)}
-                    title="Delete media"
-                    className="p-1.5 rounded-lg bg-white/90 hover:bg-red-50 text-slate-400 hover:text-red-600 shadow-xs backdrop-blur-xs transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5 hover:text-red-600" />
-                  </button>
                 </div>
-
-                {/* Inline confirmation notification overlay */}
-                {isDeleting && (
-                  <div 
-                    onClick={(e) => e.stopPropagation()} 
-                    className="absolute inset-0 bg-slate-900/80 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center z-20 animate-in fade-in"
-                  >
-                    <p className="text-white text-xs font-bold mb-2">Delete permanently?</p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => confirmDelete(e, item.id)}
-                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelDelete}
-                        className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-slate-900 to-indigo-950 text-white flex flex-col items-center justify-center p-3 relative group-hover:scale-105 transition-transform duration-200">
+                  <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center mb-1">
+                    <Music className="w-5 h-5 text-indigo-300" />
                   </div>
-                )}
-              </div>
-
-              {/* Card Info Area */}
-              <div className="p-3 flex flex-col justify-between flex-1 gap-1">
-                <p className="text-xs font-semibold text-slate-900 truncate" title={item.originalName}>
-                  {item.originalName}
-                </p>
-
-                <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
-                  <span>{formatFileSize(item.size)}</span>
-                  <span>{formatRelativeTime(item.createdAt)}</span>
-                </div>
-
-                <div className="pt-1">
-                  <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-100 text-sky-700">
-                    Permanent
+                  <span className="text-[10px] font-mono text-slate-300 uppercase tracking-wider">
+                    Audio Track
                   </span>
                 </div>
+              )}
+            </div>
+
+            {/* Meta details matching Image 1 */}
+            <div className="space-y-1">
+              <p
+                className="text-xs font-semibold text-slate-900 truncate group-hover:text-teal-600 transition-colors"
+                title={item.originalName}
+              >
+                {item.originalName}
+              </p>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span className="font-mono tabular-nums">{formatFileSize(item.size)}</span>
+                <span>{formatRelativeTime(item.createdAt)}</span>
+              </div>
+
+              {/* Light blue pill badge matching screenshot */}
+              <div className="pt-0.5">
+                <span className="inline-block bg-sky-50 text-sky-600 border border-sky-100 rounded-md px-2 py-0.5 text-[10px] font-medium leading-none">
+                  Permanent
+                </span>
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
-    </div>
+    </section>
   );
 };

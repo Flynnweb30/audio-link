@@ -1,24 +1,20 @@
-# MediaLink - Production Direct Stream Web Service
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Production-ready media upload web service with Firebase Google Authentication, conversion history, and direct streaming URLs.
+# Run and deploy your AI Studio app
 
-## Features
-- **Zero Initial Sample Files:** Clean starting state for end users.
-- **Landing Page + Web App:** Polished hero, free vs pro feature comparisons, and conversion points.
-- **Red Delete (X) Actions:** Real-time removal from disk, URL registry, and history with confirmation.
-- **Pro Tier Capabilities:** Link analytics, custom branded slugs, password-protection, and developer API support.
-- **Real Firebase Google OAuth:** Native Google sign-in with local session persistence.
-- **HTTP 206 Byte Ranges:** Full partial content support for scrub seeking, Safari, and lock-screen controls.
+This contains everything you need to run your app locally.
 
-## Render Deployment
-1. Connect this repository as a **Render Web Service**.
-2. **Build Command:** `npm install && npm run build`
-3. **Start Command:** `npm start`
-4. **Environment Variables:**
-   - `NODE_ENV=production`
-   - `VITE_FIREBASE_API_KEY`
-   - `VITE_FIREBASE_AUTH_DOMAIN`
-   - `VITE_FIREBASE_PROJECT_ID`
-   - `VITE_FIREBASE_STORAGE_BUCKET`
-   - `VITE_FIREBASE_MESSAGING_SENDER_ID`
-   - `VITE_FIREBASE_APP_ID`
+View your app in AI Studio: https://ai.studio/apps/a2119823-6981-41b6-be5b-2b989f7aecb3
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
