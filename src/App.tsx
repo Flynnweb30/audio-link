@@ -1,18 +1,33 @@
 import React, { useState, useEffect } from 'react';
+import { User } from 'firebase/auth';
 import { Navbar } from './components/Navbar';
 import { AudioUploader } from './components/AudioUploader';
 import { UrlShareCard } from './components/UrlShareCard';
 import { RecentUploadsGrid } from './components/RecentUploadsGrid';
 import { MediaHistoryView } from './components/MediaHistoryView';
 import { SharePlayerView } from './components/SharePlayerView';
+import { QuotaExceededModal } from './components/QuotaExceededModal';
 import { MediaItem } from './types';
-import { getOrCreateUserId } from './utils/userSession';
+import { getOrCreateGuestId } from './utils/userSession';
+import { subscribeToAuth, loginWithGoogle, logoutUser } from './firebase';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'upload' | 'history' | 'player'>('upload');
+  const [user, setUser] = useState<User | null>(null);
   const [activePlayerMediaId, setActivePlayerMediaId] = useState<string | null>(null);
   const [lastUploadedMedia, setLastUploadedMedia] = useState<MediaItem | null>(null);
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+  const [quotaModalOpen, setQuotaModalOpen] = useState(false);
+
+  // Authenticate user & sync state
+  useEffect(() => {
+    const unsubscribe = subscribeToAuth((firebaseUser) => {
+      setUser(firebaseUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const currentUserId = user ? user.uid : getOrCreateGuestId();
 
   useEffect(() => {
     const handleUrlChange = () => {
@@ -36,9 +51,8 @@ export default function App() {
 
   const fetchMedia = async () => {
     try {
-      const userId = getOrCreateUserId();
-      const res = await fetch(`/api/media?userId=${encodeURIComponent(userId)}`, {
-        headers: { 'X-User-Id': userId },
+      const res = await fetch(`/api/media?userId=${encodeURIComponent(currentUserId)}`, {
+        headers: { 'X-User-Id': currentUserId },
       });
       if (res.ok) {
         const data = await res.json();
@@ -51,7 +65,32 @@ export default function App() {
 
   useEffect(() => {
     fetchMedia();
-  }, []);
+  }, [currentUserId]);
+
+  // Guest-to-User History Migration upon Google Sign-In
+  const handleGoogleSignIn = async () => {
+    try {
+      const guestId = getOrCreateGuestId();
+      const signedInUser = await loginWithGoogle();
+      if (signedInUser) {
+        // Associate previous guest uploads with user account
+        await fetch('/api/migrate-history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fromUserId: guestId, toUserId: signedInUser.uid }),
+        }).catch(() => {});
+        fetchMedia();
+      }
+    } catch (err) {
+      console.error('Sign-in failed:', err);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await logoutUser();
+    setUser(null);
+    fetchMedia();
+  };
 
   const handleUploadSuccess = (item: MediaItem) => {
     setLastUploadedMedia(item);
@@ -101,6 +140,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50/70 text-slate-900 flex flex-col font-sans antialiased">
       <Navbar
         currentTab={currentTab}
+        user={user}
         onSelectTab={(tab) => {
           if (currentTab === 'player') {
             const cleanUrl = window.location.pathname;
@@ -109,6 +149,8 @@ export default function App() {
           setCurrentTab(tab);
         }}
         onNewUpload={handleNavNewUpload}
+        onSignInWithGoogle={handleGoogleSignIn}
+        onSignOut={handleSignOut}
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
@@ -139,7 +181,12 @@ export default function App() {
                   <h3 className="text-sm font-semibold text-slate-800 mb-3">
                     Upload Another Media File
                   </h3>
-                  <AudioUploader onUploadSuccess={handleUploadSuccess} />
+                  <AudioUploader
+                    isSignedIn={Boolean(user)}
+                    currentUserId={currentUserId}
+                    onUploadSuccess={handleUploadSuccess}
+                    onQuotaExceeded={() => setQuotaModalOpen(true)}
+                  />
                 </div>
               </div>
             ) : (
@@ -153,10 +200,15 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* Primary Upload Area */}
-                <AudioUploader onUploadSuccess={handleUploadSuccess} />
+                {/* Drop All Media Area */}
+                <AudioUploader
+                  isSignedIn={Boolean(user)}
+                  currentUserId={currentUserId}
+                  onUploadSuccess={handleUploadSuccess}
+                  onQuotaExceeded={() => setQuotaModalOpen(true)}
+                />
 
-                {/* Image 1 Reference: Recent Uploads Grid Below Drop Area */}
+                {/* Recent Uploads Grid Below Drop Area */}
                 <RecentUploadsGrid
                   items={mediaList}
                   onOpenPlayer={handleOpenPlayer}
@@ -167,6 +219,12 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <QuotaExceededModal
+        isOpen={quotaModalOpen}
+        onClose={() => setQuotaModalOpen(false)}
+        onSignInWithGoogle={handleGoogleSignIn}
+      />
 
       <footer className="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-500">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">

@@ -5,22 +5,27 @@ import {
   AlertCircle, 
   Loader2, 
   Mic, 
-  Square, 
-  Music, 
-  Film, 
-  Image as ImageIcon 
+  Square 
 } from 'lucide-react';
 import { MediaItem, UploadProgress } from '../types';
 import { formatFileSize } from '../utils/formatters';
-import { getOrCreateUserId } from '../utils/userSession';
+import { hasCreditsAvailable, consumeGuestCredit } from '../utils/quotaManager';
 
 interface AudioUploaderProps {
+  isSignedIn: boolean;
+  currentUserId: string;
   onUploadSuccess: (item: MediaItem) => void;
+  onQuotaExceeded: () => void;
 }
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
-export const AudioUploader: React.FC<AudioUploaderProps> = ({ onUploadSuccess }) => {
+export const AudioUploader: React.FC<AudioUploaderProps> = ({
+  isSignedIn,
+  currentUserId,
+  onUploadSuccess,
+  onQuotaExceeded,
+}) => {
   const [isDragging, setIsDragging] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({
@@ -40,6 +45,13 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({ onUploadSuccess })
 
   const handleFileSelection = (file: File) => {
     setValidationError(null);
+
+    // Verify monthly credit availability
+    if (!hasCreditsAvailable(isSignedIn)) {
+      onQuotaExceeded();
+      return;
+    }
+
     if (file.size > MAX_FILE_SIZE) {
       setValidationError(`File size (${formatFileSize(file.size)}) exceeds maximum limit of 100MB.`);
       return;
@@ -60,15 +72,14 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({ onUploadSuccess })
       uploadedMedia: null,
     });
 
-    const userId = getOrCreateUserId();
     const formData = new FormData();
     formData.append('media', file);
-    formData.append('userId', userId);
+    formData.append('userId', currentUserId);
     formData.append('folder', 'public');
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload', true);
-    xhr.setRequestHeader('X-User-Id', userId);
+    xhr.setRequestHeader('X-User-Id', currentUserId);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -85,6 +96,11 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({ onUploadSuccess })
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const response = JSON.parse(xhr.responseText);
+          // Deduct 1 guest credit ONLY after a confirmed successful conversion
+          if (!isSignedIn) {
+            consumeGuestCredit();
+          }
+
           setUploadProgress({
             state: 'success',
             percentage: 100,
@@ -150,6 +166,11 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({ onUploadSuccess })
   };
 
   const startRecording = async () => {
+    if (!hasCreditsAvailable(isSignedIn)) {
+      onQuotaExceeded();
+      return;
+    }
+
     try {
       setValidationError(null);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });

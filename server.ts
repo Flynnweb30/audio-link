@@ -511,6 +511,27 @@ async function startServer() {
     return res.json({ success: true, message: 'Media deleted successfully' });
   });
 
+    // Endpoint to migrate guest uploads to authenticated Firebase user account
+  app.post('/api/migrate-history', (req, res) => {
+    const { fromUserId, toUserId } = req.body || {};
+    if (!fromUserId || !toUserId) {
+      return res.status(400).json({ error: 'fromUserId and toUserId are required' });
+    }
+
+    let count = 0;
+    Object.values(mediaRegistry).forEach((item) => {
+      if (item.userId === fromUserId) {
+        item.userId = toUserId;
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      saveRegistry();
+    }
+    return res.json({ success: true, migrated: count });
+  });
+
   if (process.env.NODE_ENV === 'production') {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
