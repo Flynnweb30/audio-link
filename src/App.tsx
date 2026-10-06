@@ -25,7 +25,7 @@ export default function App() {
   const [isPro, setIsPro] = useState(isProActivated());
   const [activePlayerMediaId, setActivePlayerMediaId] = useState<string | null>(null);
   const [lastUploadedMedia, setLastUploadedMedia] = useState<MediaItem | null>(null);
-  const [mediaList, setMediaList] = useState<MediaItem[]>(getLocalHistory());
+  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [quotaModalOpen, setQuotaModalOpen] = useState(false);
   const [proModalOpen, setProModalOpen] = useState(false);
 
@@ -71,11 +71,20 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        const serverItems = data.items || [];
-        const localItems = getLocalHistory();
+        const serverItems: MediaItem[] = data.items || [];
+        const localItems: MediaItem[] = getLocalHistory();
+
+        // Prune local entries that do not exist on the server to prevent stale 404s
+        const validLocal = localItems.filter((loc) => 
+          serverItems.some((srv) => srv.id === loc.id)
+        );
+
+        if (validLocal.length !== localItems.length) {
+          localStorage.setItem('medialink_local_history', JSON.stringify(validLocal));
+        }
 
         const map = new Map<string, MediaItem>();
-        [...serverItems, ...localItems].forEach((item) => {
+        [...serverItems, ...validLocal].forEach((item) => {
           if (!map.has(item.id)) map.set(item.id, item);
         });
 
@@ -247,7 +256,7 @@ export default function App() {
                   onQuotaExceeded={() => setQuotaModalOpen(true)}
                 />
 
-                {/* Recent Converted Uploads Grid with Red Delete X Icon */}
+                {/* Recent Converted Uploads Grid */}
                 <RecentUploadsGrid
                   items={mediaList}
                   onOpenPlayer={handleOpenPlayer}

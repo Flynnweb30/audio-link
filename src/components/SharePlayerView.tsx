@@ -18,11 +18,11 @@ import {
   Film,
   Image as ImageIcon,
   Repeat,
-  X,
-  Trash2
+  X
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatDuration, formatFileSize, copyToClipboard } from '../utils/formatters';
+import { removeLocalHistoryItem } from '../utils/userSession';
 import { WaveformVisualizer } from './WaveformVisualizer';
 import { QrCodeModal } from './QrCodeModal';
 
@@ -65,7 +65,12 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
 
     fetch(`/api/media/${audioId}`)
       .then((res) => {
-        if (!res.ok) throw new Error('Media not found or has expired.');
+        if (!res.ok) {
+          if (res.status === 404) {
+            removeLocalHistoryItem(audioId);
+          }
+          throw new Error('Media not found or has expired.');
+        }
         return res.json();
       })
       .then((data) => {
@@ -213,7 +218,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
           <AlertCircle className="w-6 h-6" />
         </div>
         <h2 className="text-lg font-bold text-slate-900 mb-1">Media Not Found</h2>
-        <p className="text-xs text-slate-500 mb-6">{loadError || 'This link does not exist.'}</p>
+        <p className="text-xs text-slate-500 mb-6">{loadError || 'This link has expired or was removed.'}</p>
         <button
           onClick={onBackToStudio}
           className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition-colors inline-flex items-center gap-2"
@@ -409,7 +414,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
               <span>{copiedType === 'direct' ? 'Copied!' : 'Copy URL'}</span>
             </button>
 
-            {/* Red X/Delete button */}
             {!confirmDelete ? (
               <button
                 type="button"

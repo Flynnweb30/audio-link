@@ -38,32 +38,6 @@ export interface StoredMediaItem {
 
 let mediaRegistry: Record<string, StoredMediaItem> = {};
 
-function loadRegistry(): void {
-  try {
-    if (fs.existsSync(METADATA_FILE)) {
-      const data = fs.readFileSync(METADATA_FILE, 'utf-8');
-      mediaRegistry = JSON.parse(data);
-    } else {
-      mediaRegistry = {};
-      saveRegistry();
-    }
-  } catch (err) {
-    console.error('Error loading media registry:', err);
-    mediaRegistry = {};
-  }
-}
-
-function saveRegistry(): void {
-  try {
-    fs.writeFileSync(METADATA_FILE, JSON.stringify(mediaRegistry, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error saving media registry:', err);
-  }
-}
-
-// Clean start: load real converted records only (Zero demo/sample files generated)
-loadRegistry();
-
 function detectMediaType(ext: string, mime?: string): { mediaType: MediaType; mimeType: string } {
   const cleanExt = ext.toLowerCase();
 
@@ -111,6 +85,107 @@ function detectMediaType(ext: string, mime?: string): { mediaType: MediaType; mi
   return { mediaType: 'audio', mimeType: 'audio/mpeg' };
 }
 
+function loadRegistry(): void {
+  try {
+    if (fs.existsSync(METADATA_FILE)) {
+      const data = fs.readFileSync(METADATA_FILE, 'utf-8');
+      mediaRegistry = JSON.parse(data);
+    } else {
+      mediaRegistry = {};
+    }
+  } catch (err) {
+    console.error('Error loading media registry:', err);
+    mediaRegistry = {};
+  }
+
+  // Auto-discover files existing on disk
+  try {
+    if (fs.existsSync(UPLOADS_DIR)) {
+      const files = fs.readdirSync(UPLOADS_DIR);
+      let recovered = 0;
+      for (const file of files) {
+        if (file === 'metadata.json' || file.startsWith('.')) continue;
+        const fileId = path.parse(file).name;
+        if (!mediaRegistry[fileId]) {
+          const filePath = path.join(UPLOADS_DIR, file);
+          const stat = fs.statSync(filePath);
+          const ext = path.extname(file);
+          const { mediaType, mimeType } = detectMediaType(ext);
+          mediaRegistry[fileId] = {
+            id: fileId,
+            originalName: file,
+            filename: file,
+            mediaType,
+            mimeType,
+            size: stat.size,
+            createdAt: stat.birthtime ? stat.birthtime.toISOString() : new Date().toISOString(),
+            userId: 'public',
+            folder: 'public',
+            views: 0,
+            downloads: 0,
+          };
+          recovered++;
+        }
+      }
+      if (recovered > 0) {
+        saveRegistry();
+        console.log(`Recovered and indexed ${recovered} files from disk.`);
+      }
+    }
+  } catch (err) {
+    console.error('Error auto-discovering disk files:', err);
+  }
+}
+
+function saveRegistry(): void {
+  try {
+    fs.writeFileSync(METADATA_FILE, JSON.stringify(mediaRegistry, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving media registry:', err);
+  }
+}
+
+loadRegistry();
+
+// Fallback search to find a file on disk if missing from in-memory cache
+function findOrRecoverFile(idOrFilename: string): StoredMediaItem | null {
+  const cleanId = path.parse(idOrFilename).name;
+  let item = mediaRegistry[cleanId] || mediaRegistry[idOrFilename];
+  if (item) return item;
+
+  try {
+    if (!fs.existsSync(UPLOADS_DIR)) return null;
+    const files = fs.readdirSync(UPLOADS_DIR);
+    const matched = files.find((f) => path.parse(f).name === cleanId || f === idOrFilename);
+    if (matched) {
+      const filePath = path.join(UPLOADS_DIR, matched);
+      const stat = fs.statSync(filePath);
+      const ext = path.extname(matched);
+      const { mediaType, mimeType } = detectMediaType(ext);
+      item = {
+        id: cleanId,
+        originalName: matched,
+        filename: matched,
+        mediaType,
+        mimeType,
+        size: stat.size,
+        createdAt: stat.birthtime ? stat.birthtime.toISOString() : new Date().toISOString(),
+        userId: 'public',
+        folder: 'public',
+        views: 0,
+        downloads: 0,
+      };
+      mediaRegistry[cleanId] = item;
+      saveRegistry();
+      return item;
+    }
+  } catch (err) {
+    console.error('Error in findOrRecoverFile:', err);
+  }
+
+  return null;
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, UPLOADS_DIR);
@@ -125,7 +200,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB
+    fileSize: 100 * 1024 * 1024,
   },
 });
 
@@ -203,7 +278,7 @@ async function startServer() {
     next();
   });
 
-  // Upload endpoint (supports single & bulk conversions)
+  // Upload endpoint
   app.post('/api/upload', (req, res) => {
     upload.any()(req, res, (err: any) => {
       if (err instanceof multer.MulterError) {
@@ -329,13 +404,13 @@ async function startServer() {
     return res.json({ success: true, migrated: count });
   });
 
-  // Single media item metadata
+  // Single media item metadata with auto-recovery
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
-    const item = mediaRegistry[id];
+    const item = findOrRecoverFile(id);
 
     if (!item) {
-      return res.status(404).json({ error: 'Media not found' });
+      return res.status(404).json({ error: 'Media not found', id });
     }
 
     const baseUrl = getBaseUrl(req);
@@ -350,13 +425,22 @@ async function startServer() {
     });
   });
 
-  // Direct Stream / Inline Playback Endpoint (Tracks analytics views)
+  // Direct Stream / Inline Playback Endpoint (Resolves filename or ID with disk fallback)
   app.get(['/media/:filename', '/audio/:filename'], (req, res) => {
-    const filename = req.params.filename;
-    const fileId = path.parse(filename).name;
-    const item = mediaRegistry[fileId];
+    const requested = req.params.filename;
+    let item = findOrRecoverFile(requested);
 
-    const filePath = path.join(UPLOADS_DIR, filename);
+    let filename = item ? item.filename : requested;
+    let filePath = path.join(UPLOADS_DIR, filename);
+
+    if (!fs.existsSync(filePath)) {
+      item = findOrRecoverFile(requested);
+      if (item) {
+        filename = item.filename;
+        filePath = path.join(UPLOADS_DIR, filename);
+      }
+    }
+
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Media file not found on server' });
     }
@@ -371,10 +455,10 @@ async function startServer() {
     streamMediaFile(req, res, filePath, mimeType);
   });
 
-  // Download media endpoint (Tracks analytics downloads)
+  // Download media endpoint
   app.get(['/api/media/:id/download', '/api/audio/:id/download'], (req, res) => {
     const id = req.params.id;
-    const item = mediaRegistry[id];
+    const item = findOrRecoverFile(id);
 
     if (!item) {
       return res.status(404).json({ error: 'Media not found' });
@@ -390,13 +474,12 @@ async function startServer() {
   // Complete file deletion from server disk, URL registry and metadata
   app.delete(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
-    const item = mediaRegistry[id];
+    const cleanId = path.parse(id).name;
+    const item = mediaRegistry[cleanId] || mediaRegistry[id];
 
-    if (!item) {
-      return res.status(404).json({ error: 'Media not found' });
-    }
+    const filename = item ? item.filename : id;
+    const filePath = path.join(UPLOADS_DIR, filename);
 
-    const filePath = path.join(UPLOADS_DIR, item.filename);
     if (fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);
@@ -405,6 +488,7 @@ async function startServer() {
       }
     }
 
+    delete mediaRegistry[cleanId];
     delete mediaRegistry[id];
     saveRegistry();
 
