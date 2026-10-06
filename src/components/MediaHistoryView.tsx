@@ -3,13 +3,16 @@ import {
   Folder, 
   Calendar, 
   Copy, 
+  Check, 
+  ExternalLink, 
   Download, 
   Trash2, 
   Music, 
   Film, 
+  Image as ImageIcon,
   ArrowLeft,
-  ExternalLink,
-  FileQuestion
+  FileQuestion,
+  X
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatFileSize, formatUploadTime, copyToClipboard } from '../utils/formatters';
@@ -33,6 +36,7 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
   const [selectedFolder, setSelectedFolder] = useState<string>('all');
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const dateBuckets = useMemo(() => {
     const buckets: {
@@ -127,9 +131,17 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
     }
   };
 
+  const handleBatchCopy = async () => {
+    if (displayedItems.length === 0) return;
+    const allUrls = displayedItems.map((i) => i.directUrl).join('\n');
+    await copyToClipboard(allUrls);
+    alert(`Copied ${displayedItems.length} direct streaming URLs to clipboard!`);
+  };
+
   return (
     <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+      {/* Top action row */}
+      <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
         <button
           onClick={onBackToStudio}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
@@ -139,6 +151,16 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
         </button>
 
         <div className="flex items-center gap-3">
+          {displayedItems.length > 0 && (
+            <button
+              onClick={handleBatchCopy}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1.5"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>Copy All URLs ({displayedItems.length})</span>
+            </button>
+          )}
+
           <span className="text-xs text-slate-500 font-medium">
             Total files: <strong className="text-slate-900">{items.length}</strong>
           </span>
@@ -146,7 +168,7 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
             onClick={onRefresh}
             className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
           >
-            Refresh List
+            Refresh
           </button>
         </div>
       </div>
@@ -312,8 +334,8 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
           {displayedItems.length === 0 ? (
             <div className="py-20 text-center">
               <FileQuestion className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <p className="text-sm font-semibold text-slate-800">No media items found</p>
-              <p className="text-xs text-slate-400 mt-1">Select another filter or upload a new file.</p>
+              <p className="text-sm font-semibold text-slate-800">No media items in this selection</p>
+              <p className="text-xs text-slate-400 mt-1">Upload an audio, video or image file to start your permanent registry.</p>
             </div>
           ) : (
             <table className="w-full text-left border-collapse">
@@ -328,6 +350,7 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
               <tbody className="divide-y divide-slate-100 text-xs">
                 {displayedItems.map((item) => {
                   const isCopied = copiedId === item.id;
+                  const isDeleting = deleteConfirmId === item.id;
                   const ext = item.filename.split('.').pop()?.toUpperCase() || 'FILE';
 
                   return (
@@ -368,6 +391,7 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
                         </span>
                       </td>
 
+                      {/* ACTIONS Column: Copy & Red X Delete */}
                       <td className="py-3 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <button
@@ -375,11 +399,7 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
                             onClick={() => handleCopy(item)}
                             className="px-3.5 py-1 rounded border border-slate-300 hover:border-slate-400 bg-white text-slate-700 font-medium text-xs shadow-2xs hover:bg-slate-50 transition-colors"
                           >
-                            {isCopied ? (
-                              <span className="text-emerald-600 font-bold">Copied!</span>
-                            ) : (
-                              'Copy'
-                            )}
+                            {isCopied ? <span className="text-emerald-600 font-bold">Copied!</span> : 'Copy'}
                           </button>
 
                           <button
@@ -400,14 +420,37 @@ export const MediaHistoryView: React.FC<MediaHistoryViewProps> = ({
                             <Download className="w-3.5 h-3.5" />
                           </a>
 
-                          <button
-                            type="button"
-                            onClick={() => onDeleteMedia(item.id)}
-                            className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {/* Red X/Delete Button with Confirmation */}
+                          {!isDeleting ? (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmId(item.id)}
+                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                              title="Delete permanently"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1 bg-white border border-red-300 p-0.5 rounded-lg shadow-sm">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onDeleteMedia(item.id);
+                                  setDeleteConfirmId(null);
+                                }}
+                                className="px-2 py-0.5 bg-red-600 text-white rounded text-[10px] font-bold"
+                              >
+                                Delete
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="p-0.5 text-slate-400 text-[10px]"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </td>
 

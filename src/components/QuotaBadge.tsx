@@ -4,10 +4,17 @@ import { GuestQuota, getGuestQuota } from '../utils/quotaManager';
 
 interface QuotaBadgeProps {
   isSignedIn: boolean;
+  isPro: boolean;
   onOpenSignIn: () => void;
+  onOpenPro: () => void;
 }
 
-export const QuotaBadge: React.FC<QuotaBadgeProps> = ({ isSignedIn, onOpenSignIn }) => {
+export const QuotaBadge: React.FC<QuotaBadgeProps> = ({ 
+  isSignedIn, 
+  isPro,
+  onOpenSignIn, 
+  onOpenPro 
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [quota, setQuota] = useState<GuestQuota>(getGuestQuota());
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -37,7 +44,7 @@ export const QuotaBadge: React.FC<QuotaBadgeProps> = ({ isSignedIn, onOpenSignIn
       >
         <span className="text-slate-600 font-semibold whitespace-nowrap">Image Hosting Quota:</span>
         <span className="px-2 py-0.5 rounded border border-slate-200 bg-slate-50/80 font-mono text-slate-800 text-xs font-semibold">
-          {isSignedIn ? 'Unlimited' : `${quota.used}/${quota.total}`}
+          {isPro ? 'Pro ∞' : isSignedIn ? 'Unlimited' : `${quota.used}/${quota.total}`}
         </span>
       </button>
 
@@ -47,35 +54,35 @@ export const QuotaBadge: React.FC<QuotaBadgeProps> = ({ isSignedIn, onOpenSignIn
             <div className="flex items-center justify-between text-xs text-slate-600">
               <span className="font-medium">Used</span>
               <span className="font-mono font-semibold text-slate-900">
-                {isSignedIn ? 'Active' : quota.used}
+                {isPro || isSignedIn ? 'Active' : quota.used}
               </span>
             </div>
 
             <div className="flex items-center justify-between text-xs text-slate-600">
               <span className="font-medium">Total</span>
               <span className="font-mono font-semibold text-slate-900">
-                {isSignedIn ? '∞' : quota.total}
+                {isPro || isSignedIn ? '∞' : quota.total}
               </span>
             </div>
 
             <div className="border-t border-slate-100 my-2 pt-2">
               <p className="text-[11px] text-slate-400 font-medium">
-                {isSignedIn ? 'Unlimited Plan (Google Account)' : 'Lifetime (always free)'}
+                {isPro ? 'Pro Unlimited Tier' : isSignedIn ? 'Google Account (Unlimited)' : 'Lifetime (always free)'}
               </p>
             </div>
 
-            {!isSignedIn && (
+            {!isPro && (
               <div className="pt-1">
                 <button
                   type="button"
                   onClick={() => {
                     setIsOpen(false);
-                    onOpenSignIn();
+                    onOpenPro();
                   }}
                   className="w-full py-1.5 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Get Unlimited Free</span>
+                  <span>Pro Capabilities</span>
                 </button>
               </div>
             )}

@@ -31,6 +31,9 @@ export interface StoredMediaItem {
   duration?: number;
   width?: number;
   height?: number;
+  views?: number;
+  downloads?: number;
+  customSlug?: string;
 }
 
 let mediaRegistry: Record<string, StoredMediaItem> = {};
@@ -58,138 +61,8 @@ function saveRegistry(): void {
   }
 }
 
+// Clean start: load real converted records only (Zero demo/sample files generated)
 loadRegistry();
-
-function generateSynthesizedWav(frequencySequence: number[], durationSeconds: number): Buffer {
-  const sampleRate = 44100;
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const totalSamples = Math.floor(sampleRate * durationSeconds);
-  const dataSize = totalSamples * numChannels * (bitsPerSample / 8);
-  const buffer = Buffer.alloc(44 + dataSize);
-
-  buffer.write('RIFF', 0);
-  buffer.writeUInt32LE(36 + dataSize, 4);
-  buffer.write('WAVE', 8);
-
-  buffer.write('fmt ', 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(numChannels, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), 28);
-  buffer.writeUInt16LE(numChannels * (bitsPerSample / 8), 32);
-  buffer.writeUInt16LE(bitsPerSample, 34);
-
-  buffer.write('data', 36);
-  buffer.writeUInt32LE(dataSize, 40);
-
-  let offset = 44;
-  const noteDuration = durationSeconds / frequencySequence.length;
-  for (let i = 0; i < totalSamples; i++) {
-    const t = i / sampleRate;
-    const noteIndex = Math.min(Math.floor(t / noteDuration), frequencySequence.length - 1);
-    const freq = frequencySequence[noteIndex];
-    const noteTime = t - noteIndex * noteDuration;
-    
-    const attack = Math.min(1, noteTime / 0.05);
-    const decay = Math.max(0, 1 - (noteTime / noteDuration) * 0.7);
-    const envelope = attack * decay;
-
-    const sampleVal = (Math.sin(2 * Math.PI * freq * t) * 0.7 + Math.sin(4 * Math.PI * freq * t) * 0.3) * envelope;
-    const intVal = Math.floor(sampleVal * 18000);
-    buffer.writeInt16LE(Math.max(-32768, Math.min(32767, intVal)), offset);
-    offset += 2;
-  }
-
-  return buffer;
-}
-
-function seedSampleMedia(): void {
-  let changed = false;
-
-  if (!mediaRegistry['aud_sample_acoustic_chime']) {
-    const sample1Id = 'aud_sample_acoustic_chime';
-    const sample1Filename = `${sample1Id}.wav`;
-    const sample1Path = path.join(UPLOADS_DIR, sample1Filename);
-    const buf1 = generateSynthesizedWav([523.25, 659.25, 783.99, 987.77, 1046.50], 4.5);
-    fs.writeFileSync(sample1Path, buf1);
-
-    mediaRegistry[sample1Id] = {
-      id: sample1Id,
-      originalName: 'Acoustic_Chimes_Demo.wav',
-      filename: sample1Filename,
-      mediaType: 'audio',
-      mimeType: 'audio/wav',
-      size: buf1.length,
-      createdAt: new Date().toISOString(),
-      folder: 'public',
-      duration: 4.5,
-    };
-    changed = true;
-  }
-
-  if (!mediaRegistry['aud_sample_lofi_pulse']) {
-    const sample2Id = 'aud_sample_lofi_pulse';
-    const sample2Filename = `${sample2Id}.wav`;
-    const sample2Path = path.join(UPLOADS_DIR, sample2Filename);
-    const buf2 = generateSynthesizedWav([261.63, 329.63, 392.00, 440.00, 392.00, 329.63], 5.0);
-    fs.writeFileSync(sample2Path, buf2);
-
-    mediaRegistry[sample2Id] = {
-      id: sample2Id,
-      originalName: 'Lofi_Pulse_Demo.wav',
-      filename: sample2Filename,
-      mediaType: 'audio',
-      mimeType: 'audio/wav',
-      size: buf2.length,
-      createdAt: new Date(Date.now() - 3600000).toISOString(),
-      folder: 'public',
-      duration: 5.0,
-    };
-    changed = true;
-  }
-
-  if (!mediaRegistry['img_sample_modern_gradient']) {
-    const imgId = 'img_sample_modern_gradient';
-    const imgFilename = `${imgId}.svg`;
-    const imgPath = path.join(UPLOADS_DIR, imgFilename);
-    const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
-      <defs>
-        <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#4f46e5" />
-          <stop offset="50%" stop-color="#7c3aed" />
-          <stop offset="100%" stop-color="#06b6d4" />
-        </linearGradient>
-      </defs>
-      <rect width="1200" height="630" fill="url(#g)" />
-      <circle cx="600" cy="315" r="180" fill="#ffffff" fill-opacity="0.12" />
-      <text x="600" y="300" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="54" font-weight="800" fill="#ffffff" letter-spacing="-1">MediaLink Direct CDN</text>
-      <text x="600" y="350" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="500" fill="#e0e7ff">Direct Streaming &amp; Display Engine</text>
-    </svg>`;
-    fs.writeFileSync(imgPath, svgContent, 'utf-8');
-
-    mediaRegistry[imgId] = {
-      id: imgId,
-      originalName: 'MediaLink_Gradient_Banner.svg',
-      filename: imgFilename,
-      mediaType: 'image',
-      mimeType: 'image/svg+xml',
-      size: Buffer.byteLength(svgContent, 'utf-8'),
-      createdAt: new Date(Date.now() - 7200000).toISOString(),
-      folder: 'public',
-      width: 1200,
-      height: 630,
-    };
-    changed = true;
-  }
-
-  if (changed) {
-    saveRegistry();
-  }
-}
-
-seedSampleMedia();
 
 function detectMediaType(ext: string, mime?: string): { mediaType: MediaType; mimeType: string } {
   const cleanExt = ext.toLowerCase();
@@ -252,7 +125,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 100 * 1024 * 1024,
+    fileSize: 100 * 1024 * 1024, // 100MB
   },
 });
 
@@ -330,6 +203,7 @@ async function startServer() {
     next();
   });
 
+  // Upload endpoint (supports single & bulk conversions)
   app.post('/api/upload', (req, res) => {
     upload.any()(req, res, (err: any) => {
       if (err instanceof multer.MulterError) {
@@ -365,6 +239,8 @@ async function startServer() {
         createdAt: new Date().toISOString(),
         userId,
         folder,
+        views: 0,
+        downloads: 0,
       };
 
       mediaRegistry[fileId] = mediaItem;
@@ -399,6 +275,7 @@ async function startServer() {
     });
   });
 
+  // Query media history per user
   app.get(['/api/media', '/api/audios'], (req, res) => {
     const baseUrl = getBaseUrl(req);
     const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
@@ -408,7 +285,7 @@ async function startServer() {
     let items = Object.values(mediaRegistry);
 
     if (userId) {
-      items = items.filter((item) => !item.userId || item.userId === userId || item.userId === 'public');
+      items = items.filter((item) => item.userId === userId || item.userId === 'public');
     }
 
     if (filterType && ['audio', 'video', 'image'].includes(filterType)) {
@@ -421,19 +298,17 @@ async function startServer() {
 
     const formatted = items
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .map((item) => {
-        const directUrl = `${baseUrl}/media/${item.filename}`;
-        return {
-          ...item,
-          directUrl,
-          directAudioUrl: directUrl,
-          playerUrl: `${baseUrl}/?play=${item.id}`,
-        };
-      });
+      .map((item) => ({
+        ...item,
+        directUrl: `${baseUrl}/media/${item.filename}`,
+        directAudioUrl: `${baseUrl}/media/${item.filename}`,
+        playerUrl: `${baseUrl}/?play=${item.id}`,
+      }));
 
     res.json({ items: formatted });
   });
 
+  // Migrate guest history to authenticated user account
   app.post('/api/migrate-history', (req, res) => {
     const { fromUserId, toUserId } = req.body || {};
     if (!fromUserId || !toUserId) {
@@ -454,6 +329,7 @@ async function startServer() {
     return res.json({ success: true, migrated: count });
   });
 
+  // Single media item metadata
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -474,6 +350,7 @@ async function startServer() {
     });
   });
 
+  // Direct Stream / Inline Playback Endpoint (Tracks analytics views)
   app.get(['/media/:filename', '/audio/:filename'], (req, res) => {
     const filename = req.params.filename;
     const fileId = path.parse(filename).name;
@@ -484,11 +361,17 @@ async function startServer() {
       return res.status(404).json({ error: 'Media file not found on server' });
     }
 
+    if (item && (!req.headers.range || req.headers.range.startsWith('bytes=0-'))) {
+      item.views = (item.views || 0) + 1;
+      saveRegistry();
+    }
+
     const ext = path.extname(filename);
     const mimeType = item?.mimeType || detectMediaType(ext).mimeType;
     streamMediaFile(req, res, filePath, mimeType);
   });
 
+  // Download media endpoint (Tracks analytics downloads)
   app.get(['/api/media/:id/download', '/api/audio/:id/download'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -497,10 +380,14 @@ async function startServer() {
       return res.status(404).json({ error: 'Media not found' });
     }
 
+    item.downloads = (item.downloads || 0) + 1;
+    saveRegistry();
+
     const filePath = path.join(UPLOADS_DIR, item.filename);
     streamMediaFile(req, res, filePath, item.mimeType, item.originalName);
   });
 
+  // Complete file deletion from server disk, URL registry and metadata
   app.delete(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -514,14 +401,14 @@ async function startServer() {
       try {
         fs.unlinkSync(filePath);
       } catch (err) {
-        console.error('Error deleting file:', err);
+        console.error('Error deleting file from disk:', err);
       }
     }
 
     delete mediaRegistry[id];
     saveRegistry();
 
-    return res.json({ success: true, message: 'Media deleted successfully' });
+    return res.json({ success: true, message: 'Media removed from disk and registry' });
   });
 
   if (process.env.NODE_ENV === 'production') {
@@ -543,7 +430,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`MediaLink Web Service running on http://0.0.0.0:${PORT}`);
-    console.log(`Persistent storage mounted at: ${UPLOADS_DIR}`);
+    console.log(`Storage location: ${UPLOADS_DIR}`);
   });
 }
 

@@ -24,7 +24,7 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-// Enforce browser local persistence so sessions survive reloads and browser closes
+// Persist Google OAuth session across reloads, browser closes and tabs
 setPersistence(auth, browserLocalPersistence).catch((err) => {
   console.warn('Firebase persistence initialization:', err);
 });
@@ -55,7 +55,7 @@ export function subscribeToAuth(callback: (user: User | null) => void): () => vo
     .then((result) => {
       if (result?.user) callback(result.user);
     })
-    .catch((err) => console.warn('Redirect sign-in check:', err));
+    .catch((err) => console.warn('Redirect check:', err));
 
   return onAuthStateChanged(auth, callback);
 }

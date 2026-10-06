@@ -9,8 +9,13 @@ import {
   VolumeX, 
   Download, 
   QrCode, 
-  CheckCircle2,
-  Music
+  Code, 
+  CheckCircle2, 
+  X, 
+  Trash2,
+  Eye,
+  Music,
+  Film
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatFileSize, formatDuration, copyToClipboard } from '../utils/formatters';
@@ -21,12 +26,14 @@ interface UrlShareCardProps {
   media: MediaItem;
   onOpenPlayer: (id: string) => void;
   onUploadAnother: () => void;
+  onDelete: (id: string) => void;
 }
 
 export const UrlShareCard: React.FC<UrlShareCardProps> = ({
   media,
   onOpenPlayer,
   onUploadAnother,
+  onDelete,
 }) => {
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -36,6 +43,7 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrUrl, setQrUrl] = useState('');
   const [qrTitle, setQrTitle] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -105,12 +113,19 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
     setQrModalOpen(true);
   };
 
+  const embedCode = media.mediaType === 'audio'
+    ? `<audio controls preload="metadata" src="${media.directUrl}"></audio>`
+    : media.mediaType === 'video'
+    ? `<video controls preload="metadata" playsinline src="${media.directUrl}"></video>`
+    : `<img src="${media.directUrl}" alt="${encodeURIComponent(media.originalName)}" />`;
+
   return (
     <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
       {media.mediaType === 'audio' && (
         <audio ref={audioRef} src={media.directUrl} preload="metadata" />
       )}
 
+      {/* Header Banner */}
       <div className="bg-slate-900 text-white px-6 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -128,6 +143,15 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
             <span className="font-mono tabular-nums">{formatFileSize(media.size)}</span>
             <span>•</span>
             <span className="text-emerald-400 font-semibold">Permanent Link</span>
+            {media.views !== undefined && (
+              <>
+                <span>•</span>
+                <span className="flex items-center gap-1 text-slate-300">
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>{media.views} streams</span>
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -142,6 +166,7 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
       </div>
 
       <div className="p-6 space-y-6">
+        {/* Media Preview Box */}
         <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl">
           {media.mediaType === 'audio' ? (
             <div>
@@ -223,13 +248,14 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
           )}
         </div>
 
+        {/* URLs & Management Row */}
         <div className="space-y-4">
           <div className="p-4 border-2 border-emerald-500/20 bg-emerald-50/20 rounded-2xl space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                 <label className="text-xs font-bold text-slate-900">
-                  Direct Raw {media.mediaType.toUpperCase()} URL (Streams in Browser, Ends in .{media.filename.split('.').pop()})
+                  Direct Raw {media.mediaType.toUpperCase()} Stream URL
                 </label>
               </div>
               <span className="text-[11px] text-emerald-700 font-semibold">
@@ -244,11 +270,13 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
                 value={media.directUrl}
                 className="flex-1 text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-mono font-medium select-all truncate"
               />
+
               <div className="flex items-center gap-2 shrink-0">
+                {/* Copy Direct URL */}
                 <button
                   type="button"
                   onClick={() => handleCopy(media.directUrl, 'direct')}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
                 >
                   {copiedType === 'direct' ? (
                     <>
@@ -262,6 +290,8 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
                     </>
                   )}
                 </button>
+
+                {/* Open in new tab */}
                 <a
                   href={media.directUrl}
                   target="_blank"
@@ -271,10 +301,42 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
                 >
                   <ExternalLink className="w-4 h-4" />
                 </a>
+
+                {/* Red X/Delete Button Beside Copy URL with Confirmation */}
+                <div className="relative">
+                  {!confirmDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(true)}
+                      className="p-2 border border-slate-300 hover:border-red-400 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                      title="Delete this file permanently"
+                    >
+                      <X className="w-4 h-4 text-slate-500 hover:text-red-600" />
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1 bg-white border border-red-300 p-1 rounded-xl shadow-md animate-in fade-in">
+                      <button
+                        type="button"
+                        onClick={() => onDelete(media.id)}
+                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors"
+                      >
+                        Confirm Delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(false)}
+                        className="p-1 text-slate-400 hover:text-slate-700 text-xs rounded-lg"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
+          {/* Autoplay shareable player link */}
           <div className="p-4 border border-indigo-200 bg-indigo-50/40 rounded-2xl space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

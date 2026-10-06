@@ -1,13 +1,14 @@
-# MediaLink - Production Direct URL Web Service
+# MediaLink - Production Direct Stream Web Service
 
-Production-ready media upload web service with Firebase Authentication, Google OAuth, and persistent direct streaming URLs.
+Production-ready media upload web service with Firebase Google Authentication, conversion history, and direct streaming URLs.
 
 ## Features
-- **Real Firebase Google OAuth:** Fast, popup and mobile redirect Google authentication with local session persistence.
-- **Monthly Guest Quotas:** 30 free conversions per calendar month, reset automatically on the 1st of every month.
-- **Unlimited Plan for Authenticated Users:** Free unlimited conversions upon signing in with Google.
-- **Conversion History & Persistence:** Survives browser closes, tab reloads, and dyno restarts.
-- **HTTP 206 Range Streaming:** Direct URLs end in actual extensions (.mp3, .mp4, .png) with in-browser streaming.
+- **Zero Initial Sample Files:** Clean starting state for end users.
+- **Landing Page + Web App:** Polished hero, free vs pro feature comparisons, and conversion points.
+- **Red Delete (X) Actions:** Real-time removal from disk, URL registry, and history with confirmation.
+- **Pro Tier Capabilities:** Link analytics, custom branded slugs, password-protection, and developer API support.
+- **Real Firebase Google OAuth:** Native Google sign-in with local session persistence.
+- **HTTP 206 Byte Ranges:** Full partial content support for scrub seeking, Safari, and lock-screen controls.
 
 ## Render Deployment
 1. Connect this repository as a **Render Web Service**.

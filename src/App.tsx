@@ -1,34 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
 import { Navbar } from './components/Navbar';
+import { LandingPage } from './components/LandingPage';
 import { AudioUploader } from './components/AudioUploader';
 import { UrlShareCard } from './components/UrlShareCard';
 import { RecentUploadsGrid } from './components/RecentUploadsGrid';
 import { MediaHistoryView } from './components/MediaHistoryView';
 import { SharePlayerView } from './components/SharePlayerView';
 import { QuotaExceededModal } from './components/QuotaExceededModal';
+import { ProUpgradeModal } from './components/ProUpgradeModal';
 import { MediaItem } from './types';
 import { 
   getOrCreateGuestId, 
   getLocalHistory, 
   saveLocalHistoryItem, 
-  removeLocalHistoryItem 
+  removeLocalHistoryItem,
+  isProActivated
 } from './utils/userSession';
 import { subscribeToAuth, loginWithGoogle, logoutUser } from './firebase';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'upload' | 'history' | 'player'>('upload');
+  const [currentTab, setCurrentTab] = useState<'home' | 'upload' | 'history' | 'player'>('home');
   const [user, setUser] = useState<User | null>(null);
+  const [isPro, setIsPro] = useState(isProActivated());
   const [activePlayerMediaId, setActivePlayerMediaId] = useState<string | null>(null);
   const [lastUploadedMedia, setLastUploadedMedia] = useState<MediaItem | null>(null);
   const [mediaList, setMediaList] = useState<MediaItem[]>(getLocalHistory());
   const [quotaModalOpen, setQuotaModalOpen] = useState(false);
+  const [proModalOpen, setProModalOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuth((firebaseUser) => {
       setUser(firebaseUser);
     });
-    return () => unsubscribe();
+    const handleProChange = () => setIsPro(isProActivated());
+    window.addEventListener('pro-status-changed', handleProChange);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('pro-status-changed', handleProChange);
+    };
   }, []);
 
   const currentUserId = user ? user.uid : getOrCreateGuestId();
@@ -43,7 +54,7 @@ export default function App() {
       } else {
         setActivePlayerMediaId(null);
         if (currentTab === 'player') {
-          setCurrentTab('upload');
+          setCurrentTab('home');
         }
       }
     };
@@ -63,7 +74,6 @@ export default function App() {
         const serverItems = data.items || [];
         const localItems = getLocalHistory();
 
-        // Merge server and local caches to prevent any lost history across reloads
         const map = new Map<string, MediaItem>();
         [...serverItems, ...localItems].forEach((item) => {
           if (!map.has(item.id)) map.set(item.id, item);
@@ -85,7 +95,6 @@ export default function App() {
     fetchMedia();
   }, [currentUserId]);
 
-  // Seamless guest-to-account history migration
   const handleGoogleSignIn = async () => {
     try {
       const guestId = getOrCreateGuestId();
@@ -135,10 +144,6 @@ export default function App() {
   };
 
   const handleDeleteMedia = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this file? Its direct URL will stop streaming.')) {
-      return;
-    }
-
     try {
       removeLocalHistoryItem(id);
       const res = await fetch(`/api/media/${id}`, { method: 'DELETE' });
@@ -148,13 +153,13 @@ export default function App() {
         fetchMedia();
       }
     } catch (err) {
-      console.error('Failed to delete media:', err);
+      console.error('Failed deleting media:', err);
     }
   };
 
   const handleNavNewUpload = () => {
     setLastUploadedMedia(null);
-    handleBackToStudio();
+    setCurrentTab('upload');
   };
 
   return (
@@ -162,6 +167,7 @@ export default function App() {
       <Navbar
         currentTab={currentTab}
         user={user}
+        isPro={isPro}
         onSelectTab={(tab) => {
           if (currentTab === 'player') {
             const cleanUrl = window.location.pathname;
@@ -172,6 +178,7 @@ export default function App() {
         onNewUpload={handleNavNewUpload}
         onSignInWithGoogle={handleGoogleSignIn}
         onSignOut={handleSignOut}
+        onOpenProModal={() => setProModalOpen(true)}
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
@@ -179,6 +186,7 @@ export default function App() {
           <SharePlayerView
             audioId={activePlayerMediaId}
             onBackToStudio={handleBackToStudio}
+            onDeleteMedia={handleDeleteMedia}
           />
         ) : currentTab === 'history' ? (
           <MediaHistoryView
@@ -188,6 +196,13 @@ export default function App() {
             onBackToStudio={handleBackToStudio}
             onRefresh={fetchMedia}
           />
+        ) : currentTab === 'home' ? (
+          <LandingPage
+            onStartFree={() => setCurrentTab('upload')}
+            onOpenPricing={() => setProModalOpen(true)}
+            onSignInWithGoogle={handleGoogleSignIn}
+            isSignedIn={Boolean(user)}
+          />
         ) : (
           <div className="space-y-8">
             {lastUploadedMedia ? (
@@ -196,6 +211,7 @@ export default function App() {
                   media={lastUploadedMedia}
                   onOpenPlayer={handleOpenPlayer}
                   onUploadAnother={() => setLastUploadedMedia(null)}
+                  onDelete={handleDeleteMedia}
                 />
 
                 <div className="pt-4 border-t border-slate-200">
@@ -204,6 +220,7 @@ export default function App() {
                   </h3>
                   <AudioUploader
                     isSignedIn={Boolean(user)}
+                    isPro={isPro}
                     currentUserId={currentUserId}
                     onUploadSuccess={handleUploadSuccess}
                     onQuotaExceeded={() => setQuotaModalOpen(true)}
@@ -221,17 +238,21 @@ export default function App() {
                   </p>
                 </div>
 
+                {/* Drop All Media Area */}
                 <AudioUploader
                   isSignedIn={Boolean(user)}
+                  isPro={isPro}
                   currentUserId={currentUserId}
                   onUploadSuccess={handleUploadSuccess}
                   onQuotaExceeded={() => setQuotaModalOpen(true)}
                 />
 
+                {/* Recent Converted Uploads Grid with Red Delete X Icon */}
                 <RecentUploadsGrid
                   items={mediaList}
                   onOpenPlayer={handleOpenPlayer}
                   onViewAllHistory={() => setCurrentTab('history')}
+                  onDeleteMedia={handleDeleteMedia}
                 />
               </div>
             )}
@@ -243,6 +264,11 @@ export default function App() {
         isOpen={quotaModalOpen}
         onClose={() => setQuotaModalOpen(false)}
         onSignInWithGoogle={handleGoogleSignIn}
+      />
+
+      <ProUpgradeModal
+        isOpen={proModalOpen}
+        onClose={() => setProModalOpen(false)}
       />
 
       <footer className="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-500">

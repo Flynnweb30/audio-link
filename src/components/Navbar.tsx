@@ -1,32 +1,37 @@
 import React, { useState } from 'react';
-import { Layers, Upload, LogOut, ChevronDown } from 'lucide-react';
+import { Layers, Upload, LogOut, ChevronDown, Sparkles } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { QuotaBadge } from './QuotaBadge';
 
 interface NavbarProps {
-  currentTab: 'upload' | 'history' | 'player';
+  currentTab: 'home' | 'upload' | 'history' | 'player';
   user: User | null;
-  onSelectTab: (tab: 'upload' | 'history') => void;
+  isPro: boolean;
+  onSelectTab: (tab: 'home' | 'upload' | 'history') => void;
   onNewUpload: () => void;
   onSignInWithGoogle: () => void;
   onSignOut: () => void;
+  onOpenProModal: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentTab,
   user,
+  isPro,
   onSelectTab,
   onNewUpload,
   onSignInWithGoogle,
   onSignOut,
+  onOpenProModal,
 }) => {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   return (
     <header className="border-b border-slate-200 bg-white sticky top-0 z-30 shadow-xs">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+        {/* Brand */}
         <div 
-          onClick={() => onSelectTab('upload')}
+          onClick={() => onSelectTab('home')}
           className="flex items-center gap-3 cursor-pointer group shrink-0"
         >
           <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-sm group-hover:bg-indigo-600 transition-colors">
@@ -35,12 +40,25 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div>
             <span className="text-lg font-bold tracking-tight text-slate-900 flex items-center gap-1.5">
               MediaLink
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              {isPro ? (
+                <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-indigo-600 text-white">PRO</span>
+              ) : (
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              )}
             </span>
           </div>
         </div>
 
+        {/* Center Nav */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
+          <button
+            onClick={() => onSelectTab('home')}
+            className={`transition-colors hover:text-slate-900 ${
+              currentTab === 'home' ? 'text-slate-900 font-bold border-b-2 border-slate-900 pb-0.5' : ''
+            }`}
+          >
+            Home
+          </button>
           <button
             onClick={() => onSelectTab('upload')}
             className={`transition-colors hover:text-slate-900 ${
@@ -57,15 +75,28 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             All History
           </button>
+          <button
+            onClick={onOpenProModal}
+            className="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-semibold transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Pricing &amp; Pro</span>
+          </button>
         </nav>
 
+        {/* Right Section */}
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-1 text-xs text-slate-600 font-medium cursor-pointer hover:text-slate-900">
             <span>English</span>
             <ChevronDown className="w-3.5 h-3.5" />
           </div>
 
-          <QuotaBadge isSignedIn={Boolean(user)} onOpenSignIn={onSignInWithGoogle} />
+          <QuotaBadge 
+            isSignedIn={Boolean(user)} 
+            isPro={isPro}
+            onOpenSignIn={onSignInWithGoogle} 
+            onOpenPro={onOpenProModal}
+          />
 
           {user ? (
             <div className="relative">

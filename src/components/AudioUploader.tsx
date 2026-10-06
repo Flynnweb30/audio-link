@@ -13,6 +13,7 @@ import { hasCreditsAvailable, consumeGuestCredit } from '../utils/quotaManager';
 
 interface AudioUploaderProps {
   isSignedIn: boolean;
+  isPro: boolean;
   currentUserId: string;
   onUploadSuccess: (item: MediaItem) => void;
   onQuotaExceeded: () => void;
@@ -22,6 +23,7 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
 export const AudioUploader: React.FC<AudioUploaderProps> = ({
   isSignedIn,
+  isPro,
   currentUserId,
   onUploadSuccess,
   onQuotaExceeded,
@@ -46,8 +48,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
   const handleFileSelection = (file: File) => {
     setValidationError(null);
 
-    // Verify monthly credit availability
-    if (!hasCreditsAvailable(isSignedIn)) {
+    if (!hasCreditsAvailable(isSignedIn, isPro)) {
       onQuotaExceeded();
       return;
     }
@@ -96,8 +97,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const response = JSON.parse(xhr.responseText);
-          // Deduct 1 guest credit ONLY after a confirmed successful conversion
-          if (!isSignedIn) {
+          if (!isSignedIn && !isPro) {
             consumeGuestCredit();
           }
 
@@ -166,7 +166,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
   };
 
   const startRecording = async () => {
-    if (!hasCreditsAvailable(isSignedIn)) {
+    if (!hasCreditsAvailable(isSignedIn, isPro)) {
       onQuotaExceeded();
       return;
     }

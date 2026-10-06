@@ -13,6 +13,9 @@ export interface MediaItem {
   duration?: number;
   width?: number;
   height?: number;
+  views?: number;
+  downloads?: number;
+  customSlug?: string;
   directUrl: string;
   playerUrl: string;
 }

@@ -12,10 +12,14 @@ import {
   Check, 
   ArrowLeft, 
   AlertCircle, 
+  Volume1, 
   QrCode,
   Music,
   Film,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Repeat,
+  X,
+  Trash2
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatDuration, formatFileSize, copyToClipboard } from '../utils/formatters';
@@ -25,11 +29,13 @@ import { QrCodeModal } from './QrCodeModal';
 interface SharePlayerViewProps {
   audioId: string;
   onBackToStudio: () => void;
+  onDeleteMedia: (id: string) => void;
 }
 
 export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   audioId,
   onBackToStudio,
+  onDeleteMedia,
 }) => {
   const [mediaItem, setMediaItem] = useState<MediaItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +46,9 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.85);
   const [isMuted, setIsMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [isLooping, setIsLooping] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [autoplayAttempted, setAutoplayAttempted] = useState(false);
@@ -112,7 +121,9 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     };
 
     const handleTimeUpdate = () => setCurrentTime(el.currentTime);
-    const handleEnded = () => setIsPlaying(false);
+    const handleEnded = () => {
+      if (!isLooping) setIsPlaying(false);
+    };
 
     el.addEventListener('loadedmetadata', handleLoadedMetadata);
     el.addEventListener('canplay', handleCanPlay);
@@ -125,7 +136,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       el.removeEventListener('timeupdate', handleTimeUpdate);
       el.removeEventListener('ended', handleEnded);
     };
-  }, [mediaItem, autoplayAttempted]);
+  }, [mediaItem, autoplayAttempted, isLooping]);
 
   const togglePlay = () => {
     const el = mediaRef.current;
@@ -252,28 +263,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
           </button>
         </div>
       </div>
-
-      {autoplayBlocked && !isPlaying && (
-        <div 
-          onClick={togglePlay}
-          className="cursor-pointer bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-5 rounded-2xl shadow-md flex items-center justify-between gap-4 transition-transform hover:scale-[1.01] active:scale-[0.99] group"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-white backdrop-blur-xs group-hover:bg-white group-hover:text-indigo-600 transition-colors">
-              <Play className="w-6 h-6 fill-current ml-0.5" />
-            </div>
-            <div>
-              <p className="text-sm font-bold tracking-tight">Tap to Start Media Playback</p>
-              <p className="text-xs text-indigo-100 mt-0.5">
-                Browser paused autoplay. Click anywhere to begin stream.
-              </p>
-            </div>
-          </div>
-          <span className="hidden sm:inline-block px-3 py-1 bg-white/20 rounded-lg text-xs font-semibold backdrop-blur-xs">
-            Play Now
-          </span>
-        </div>
-      )}
 
       <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6 sm:p-8 space-y-6">
         <div className="flex items-start justify-between gap-4">
@@ -419,6 +408,38 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
               {copiedType === 'direct' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copiedType === 'direct' ? 'Copied!' : 'Copy URL'}</span>
             </button>
+
+            {/* Red X/Delete button */}
+            {!confirmDelete ? (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="p-2 border border-slate-300 hover:border-red-400 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                title="Delete media permanently"
+              >
+                <X className="w-4 h-4 hover:text-red-600" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-1 bg-white border border-red-300 p-1 rounded-xl shadow-md">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteMedia(mediaItem.id);
+                    onBackToStudio();
+                  }}
+                  className="px-2.5 py-1 bg-red-600 text-white rounded-lg text-xs font-bold"
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="p-1 text-slate-400 text-xs"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
