@@ -399,27 +399,6 @@ async function startServer() {
     });
   });
 
-  // Seamless guest-to-account migration
-  app.post('/api/migrate-history', (req, res) => {
-    const { fromUserId, toUserId } = req.body || {};
-    if (!fromUserId || !toUserId) {
-      return res.status(400).json({ error: 'fromUserId and toUserId are required' });
-    }
-
-    let count = 0;
-    Object.values(mediaRegistry).forEach((item) => {
-      if (item.userId === fromUserId) {
-        item.userId = toUserId;
-        count++;
-      }
-    });
-
-    if (count > 0) {
-      saveRegistry();
-    }
-    return res.json({ success: true, migrated: count });
-  });
-
   app.get(['/api/media', '/api/audios'], (req, res) => {
     const baseUrl = getBaseUrl(req);
     const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
@@ -453,6 +432,26 @@ async function startServer() {
       });
 
     res.json({ items: formatted });
+  });
+
+  app.post('/api/migrate-history', (req, res) => {
+    const { fromUserId, toUserId } = req.body || {};
+    if (!fromUserId || !toUserId) {
+      return res.status(400).json({ error: 'fromUserId and toUserId are required' });
+    }
+
+    let count = 0;
+    Object.values(mediaRegistry).forEach((item) => {
+      if (item.userId === fromUserId) {
+        item.userId = toUserId;
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      saveRegistry();
+    }
+    return res.json({ success: true, migrated: count });
   });
 
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {

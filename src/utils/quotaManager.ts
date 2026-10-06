@@ -2,7 +2,7 @@ const QUOTA_STORAGE_KEY = 'medialink_guest_monthly_quota';
 export const GUEST_MONTHLY_LIMIT = 30;
 
 export interface GuestQuota {
-  monthKey: string; // e.g. "2026-10"
+  monthKey: string; // "YYYY-MM"
   used: number;
   total: number;
   remaining: number;
@@ -72,7 +72,7 @@ export function consumeGuestCredit(): GuestQuota {
 }
 
 export function hasCreditsAvailable(isSignedIn: boolean): boolean {
-  if (isSignedIn) return true; // Signed-in users receive unlimited conversions
+  if (isSignedIn) return true; // Signed-in Google accounts have unlimited conversions
   const quota = getGuestQuota();
   return quota.remaining > 0;
 }

@@ -39,7 +39,6 @@ export function formatRelativeTime(isoString: string): string {
   }
 }
 
-// Matches Image 2 & 3 format: "02:09", "Yesterday 19:50", "10/3/2026", "Sep 5, 2026"
 export function formatUploadTime(isoString: string): string {
   try {
     const date = new Date(isoString);

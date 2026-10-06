@@ -1,16 +1,23 @@
-# MediaLink - Audio, Video & Image Direct URL Web Service
+# MediaLink - Production Direct URL Web Service
 
-Production-ready media upload web service engineered for deployment on Render. Convert MP3, WAV, MP4, WebM, PNG, JPG, AVIF, SVG, and more into permanent, direct streaming URLs ending in the file extension (e.g., `https://audiolink.onrender.com/media/media_1742083921.avif`).
+Production-ready media upload web service with Firebase Authentication, Google OAuth, and persistent direct streaming URLs.
 
 ## Features
-- **Real Firebase Google Authentication:** Instant Google OAuth with session persistence.
-- **Guest Access with 30 Free Credits/Month:** Automatically resets at the start of each calendar month.
-- **Permanent Guest History:** Stored locally and on server; seamlessly restored on reloads and device returns.
-- **Seamless Account Migration:** Guest history automatically transfers to Google account on sign-in.
-- **Direct Stream URLs:** Browser-native playback with HTTP 206 Byte Ranges.
+- **Real Firebase Google OAuth:** Fast, popup and mobile redirect Google authentication with local session persistence.
+- **Monthly Guest Quotas:** 30 free conversions per calendar month, reset automatically on the 1st of every month.
+- **Unlimited Plan for Authenticated Users:** Free unlimited conversions upon signing in with Google.
+- **Conversion History & Persistence:** Survives browser closes, tab reloads, and dyno restarts.
+- **HTTP 206 Range Streaming:** Direct URLs end in actual extensions (.mp3, .mp4, .png) with in-browser streaming.
 
 ## Render Deployment
 1. Connect this repository as a **Render Web Service**.
 2. **Build Command:** `npm install && npm run build`
 3. **Start Command:** `npm start`
-4. **Environment Variables:** `NODE_ENV=production`
+4. **Environment Variables:**
+   - `NODE_ENV=production`
+   - `VITE_FIREBASE_API_KEY`
+   - `VITE_FIREBASE_AUTH_DOMAIN`
+   - `VITE_FIREBASE_PROJECT_ID`
+   - `VITE_FIREBASE_STORAGE_BUCKET`
+   - `VITE_FIREBASE_MESSAGING_SENDER_ID`
+   - `VITE_FIREBASE_APP_ID`

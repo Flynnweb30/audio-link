@@ -7,32 +7,22 @@ import { RecentUploadsGrid } from './components/RecentUploadsGrid';
 import { MediaHistoryView } from './components/MediaHistoryView';
 import { SharePlayerView } from './components/SharePlayerView';
 import { QuotaExceededModal } from './components/QuotaExceededModal';
-import { FirebaseConfigModal } from './components/FirebaseConfigModal';
 import { MediaItem } from './types';
 import { 
   getOrCreateGuestId, 
-  getLocallyCachedHistory, 
-  saveLocallyCachedHistory, 
-  appendItemToLocalCache, 
-  removeItemFromLocalCache 
+  getLocalHistory, 
+  saveLocalHistoryItem, 
+  removeLocalHistoryItem 
 } from './utils/userSession';
-import { 
-  subscribeToAuth, 
-  loginWithGoogle, 
-  logoutUser, 
-  hasFirebaseCredentials 
-} from './firebase';
+import { subscribeToAuth, loginWithGoogle, logoutUser } from './firebase';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'upload' | 'history' | 'player'>('upload');
   const [user, setUser] = useState<User | null>(null);
   const [activePlayerMediaId, setActivePlayerMediaId] = useState<string | null>(null);
   const [lastUploadedMedia, setLastUploadedMedia] = useState<MediaItem | null>(null);
-  
-  // Instantly restores guest conversion history from persistent local storage
-  const [mediaList, setMediaList] = useState<MediaItem[]>(() => getLocallyCachedHistory());
+  const [mediaList, setMediaList] = useState<MediaItem[]>(getLocalHistory());
   const [quotaModalOpen, setQuotaModalOpen] = useState(false);
-  const [configModalOpen, setConfigModalOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuth((firebaseUser) => {
@@ -63,7 +53,6 @@ export default function App() {
     return () => window.removeEventListener('popstate', handleUrlChange);
   }, []);
 
-  // Sync server items with local persistent cache
   const fetchMedia = async () => {
     try {
       const res = await fetch(`/api/media?userId=${encodeURIComponent(currentUserId)}`, {
@@ -71,24 +60,24 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        const serverItems: MediaItem[] = data.items || [];
-        
-        // Merge without losing any local guest records
-        setMediaList((prev) => {
-          const map = new Map<string, MediaItem>();
-          serverItems.forEach((i) => map.set(i.id, i));
-          prev.forEach((i) => {
-            if (!map.has(i.id)) map.set(i.id, i);
-          });
-          const merged = Array.from(map.values()).sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-          saveLocallyCachedHistory(merged);
-          return merged;
+        const serverItems = data.items || [];
+        const localItems = getLocalHistory();
+
+        // Merge server and local caches to prevent any lost history across reloads
+        const map = new Map<string, MediaItem>();
+        [...serverItems, ...localItems].forEach((item) => {
+          if (!map.has(item.id)) map.set(item.id, item);
         });
+
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setMediaList(merged);
+      } else {
+        setMediaList(getLocalHistory());
       }
-    } catch (err) {
-      console.warn('Network fetch error, retaining local persistent history:', err);
+    } catch {
+      setMediaList(getLocalHistory());
     }
   };
 
@@ -96,13 +85,8 @@ export default function App() {
     fetchMedia();
   }, [currentUserId]);
 
-  // Real Google Sign-In with automatic guest-to-account history migration
+  // Seamless guest-to-account history migration
   const handleGoogleSignIn = async () => {
-    if (!hasFirebaseCredentials) {
-      setConfigModalOpen(true);
-      return;
-    }
-
     try {
       const guestId = getOrCreateGuestId();
       const signedInUser = await loginWithGoogle();
@@ -115,12 +99,8 @@ export default function App() {
         fetchMedia();
       }
     } catch (err: any) {
-      if (err.message === 'MISSING_CONFIG') {
-        setConfigModalOpen(true);
-      } else if (err.code === 'auth/unauthorized-domain') {
-        alert('This domain is not yet authorized in Firebase Console > Authentication > Settings > Authorized domains.');
-      } else if (err.code !== 'auth/popup-closed-by-user') {
-        alert('Google Sign-In failed: ' + (err.message || err.code));
+      if (err.code !== 'auth/popup-closed-by-user') {
+        console.error('Google Sign-In failed:', err);
       }
     }
   };
@@ -132,9 +112,8 @@ export default function App() {
   };
 
   const handleUploadSuccess = (item: MediaItem) => {
+    saveLocalHistoryItem(item);
     setLastUploadedMedia(item);
-    appendItemToLocalCache(item);
-    setMediaList((prev) => [item, ...prev.filter((i) => i.id !== item.id)]);
     fetchMedia();
     setTimeout(() => {
       window.scrollTo({ top: 120, behavior: 'smooth' });
@@ -160,17 +139,16 @@ export default function App() {
       return;
     }
 
-    removeItemFromLocalCache(id);
-    setMediaList((prev) => prev.filter((i) => i.id !== id));
-
     try {
+      removeLocalHistoryItem(id);
       const res = await fetch(`/api/media/${id}`, { method: 'DELETE' });
       if (res.ok) {
         if (lastUploadedMedia?.id === id) setLastUploadedMedia(null);
         if (activePlayerMediaId === id) handleBackToStudio();
+        fetchMedia();
       }
     } catch (err) {
-      console.error('Failed to delete media on server:', err);
+      console.error('Failed to delete media:', err);
     }
   };
 
@@ -265,11 +243,6 @@ export default function App() {
         isOpen={quotaModalOpen}
         onClose={() => setQuotaModalOpen(false)}
         onSignInWithGoogle={handleGoogleSignIn}
-      />
-
-      <FirebaseConfigModal
-        isOpen={configModalOpen}
-        onClose={() => setConfigModalOpen(false)}
       />
 
       <footer className="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-500">

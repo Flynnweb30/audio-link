@@ -25,7 +25,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="border-b border-slate-200 bg-white sticky top-0 z-30 shadow-xs">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-        {/* Brand */}
         <div 
           onClick={() => onSelectTab('upload')}
           className="flex items-center gap-3 cursor-pointer group shrink-0"
@@ -41,7 +40,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Center Navigation */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
           <button
             onClick={() => onSelectTab('upload')}
@@ -61,7 +59,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         </nav>
 
-        {/* Right Section: Language + Quota Badge + Auth */}
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-1 text-xs text-slate-600 font-medium cursor-pointer hover:text-slate-900">
             <span>English</span>

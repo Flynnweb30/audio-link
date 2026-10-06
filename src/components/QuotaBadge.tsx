@@ -30,7 +30,6 @@ export const QuotaBadge: React.FC<QuotaBadgeProps> = ({ isSignedIn, onOpenSignIn
 
   return (
     <div className="relative inline-flex items-center text-xs" ref={dropdownRef}>
-      {/* Trigger: "Image Hosting Quota: [17/30]" matching screenshot */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -42,7 +41,6 @@ export const QuotaBadge: React.FC<QuotaBadgeProps> = ({ isSignedIn, onOpenSignIn
         </span>
       </button>
 
-      {/* Popover dropdown matching attached image */}
       {isOpen && (
         <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-lg border border-slate-200/90 py-3 px-4 z-50 animate-in fade-in zoom-in-95 duration-100">
           <div className="space-y-2">

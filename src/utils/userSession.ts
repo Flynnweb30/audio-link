@@ -1,9 +1,8 @@
 import { MediaItem } from '../types';
 
 const GUEST_ID_KEY = 'medialink_guest_id';
-const LOCAL_MEDIA_CACHE_KEY = 'medialink_local_history_cache';
+const LOCAL_HISTORY_KEY = 'medialink_local_history';
 
-// Permanent Guest ID that survives browser reboots, reloads and sessions
 export function getOrCreateGuestId(): string {
   try {
     let id = localStorage.getItem(GUEST_ID_KEY);
@@ -13,43 +12,33 @@ export function getOrCreateGuestId(): string {
     }
     return id;
   } catch {
-    return 'guest_permanent_user';
+    return 'guest_persistent_client';
   }
 }
 
-// Restores guest history immediately from local storage upon app reopen
-export function getLocallyCachedHistory(): MediaItem[] {
+export function getLocalHistory(): MediaItem[] {
   try {
-    const data = localStorage.getItem(LOCAL_MEDIA_CACHE_KEY);
-    if (data) {
-      const items = JSON.parse(data);
-      return Array.isArray(items) ? items : [];
-    }
-  } catch (err) {
-    console.error('Error reading local cache:', err);
+    const data = localStorage.getItem(LOCAL_HISTORY_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
   }
-  return [];
 }
 
-export function saveLocallyCachedHistory(items: MediaItem[]): void {
+export function saveLocalHistoryItem(item: MediaItem): void {
   try {
-    localStorage.setItem(LOCAL_MEDIA_CACHE_KEY, JSON.stringify(items));
+    const history = getLocalHistory();
+    const updated = [item, ...history.filter((i) => i.id !== item.id)];
+    localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(updated.slice(0, 100)));
   } catch (err) {
-    console.error('Error writing local cache:', err);
+    console.error('Failed to save local history item:', err);
   }
 }
 
-export function appendItemToLocalCache(item: MediaItem): void {
-  const current = getLocallyCachedHistory();
-  const exists = current.some((i) => i.id === item.id);
-  if (!exists) {
-    const updated = [item, ...current];
-    saveLocallyCachedHistory(updated);
-  }
-}
-
-export function removeItemFromLocalCache(id: string): void {
-  const current = getLocallyCachedHistory();
-  const filtered = current.filter((i) => i.id !== id);
-  saveLocallyCachedHistory(filtered);
+export function removeLocalHistoryItem(id: string): void {
+  try {
+    const history = getLocalHistory();
+    const updated = history.filter((i) => i.id !== id);
+    localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(updated));
+  } catch {}
 }
