@@ -9,6 +9,7 @@ import { SharePlayerView } from './components/SharePlayerView';
 import { QuotaExceededModal } from './components/QuotaExceededModal';
 import { MediaItem } from './types';
 import { getOrCreateGuestId } from './utils/userSession';
+import { getLocalGuestHistory, saveLocalGuestItem, removeLocalGuestItem } from './utils/localHistory';
 import { subscribeToAuth, loginWithGoogle, logoutUser } from './firebase';
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
   const [lastUploadedMedia, setLastUploadedMedia] = useState<MediaItem | null>(null);
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [quotaModalOpen, setQuotaModalOpen] = useState(false);
+  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 
   // Authenticate user & sync state
   useEffect(() => {
@@ -54,26 +56,49 @@ export default function App() {
       const res = await fetch(`/api/media?userId=${encodeURIComponent(currentUserId)}`, {
         headers: { 'X-User-Id': currentUserId },
       });
+      let serverItems: MediaItem[] = [];
       if (res.ok) {
         const data = await res.json();
-        setMediaList(data.items || []);
+        serverItems = data.items || [];
+      }
+
+      if (!user) {
+        // Guest mode: Merge server items with permanently cached local guest items
+        const localItems = getLocalGuestHistory();
+        const map = new Map<string, MediaItem>();
+        serverItems.forEach((item) => map.set(item.id, item));
+        localItems.forEach((item) => {
+          if (!map.has(item.id)) {
+            map.set(item.id, item);
+          }
+        });
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setMediaList(merged);
+      } else {
+        setMediaList(serverItems);
       }
     } catch (err) {
       console.error('Failed to fetch media list:', err);
+      if (!user) {
+        setMediaList(getLocalGuestHistory());
+      }
     }
   };
 
   useEffect(() => {
     fetchMedia();
-  }, [currentUserId]);
+  }, [currentUserId, user]);
 
-  // Guest-to-User History Migration upon Google Sign-In
+  // Real Google OAuth Sign-In Flow with History Migration
   const handleGoogleSignIn = async () => {
+    setAuthErrorMessage(null);
     try {
       const guestId = getOrCreateGuestId();
       const signedInUser = await loginWithGoogle();
       if (signedInUser) {
-        // Associate previous guest uploads with user account
+        // Migrate all previous guest conversions to Google account
         await fetch('/api/migrate-history', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -81,8 +106,10 @@ export default function App() {
         }).catch(() => {});
         fetchMedia();
       }
-    } catch (err) {
-      console.error('Sign-in failed:', err);
+    } catch (err: any) {
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setAuthErrorMessage(err.message || 'Google Sign-In failed.');
+      }
     }
   };
 
@@ -94,6 +121,9 @@ export default function App() {
 
   const handleUploadSuccess = (item: MediaItem) => {
     setLastUploadedMedia(item);
+    if (!user) {
+      saveLocalGuestItem(item);
+    }
     fetchMedia();
     setTimeout(() => {
       window.scrollTo({ top: 120, behavior: 'smooth' });
@@ -122,6 +152,9 @@ export default function App() {
     try {
       const res = await fetch(`/api/media/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        if (!user) {
+          removeLocalGuestItem(id);
+        }
         if (lastUploadedMedia?.id === id) setLastUploadedMedia(null);
         if (activePlayerMediaId === id) handleBackToStudio();
         fetchMedia();
@@ -152,6 +185,21 @@ export default function App() {
         onSignInWithGoogle={handleGoogleSignIn}
         onSignOut={handleSignOut}
       />
+
+      {/* Global Auth Error Banner */}
+      {authErrorMessage && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-4 w-full">
+          <div className="p-4 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs flex items-center justify-between">
+            <span>{authErrorMessage}</span>
+            <button
+              onClick={() => setAuthErrorMessage(null)}
+              className="text-rose-600 font-bold hover:underline cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
         {currentTab === 'player' && activePlayerMediaId ? (
@@ -208,7 +256,7 @@ export default function App() {
                   onQuotaExceeded={() => setQuotaModalOpen(true)}
                 />
 
-                {/* Recent Uploads Grid Below Drop Area */}
+                {/* Recent Uploads Grid Below Drop Area matching Image 1 */}
                 <RecentUploadsGrid
                   items={mediaList}
                   onOpenPlayer={handleOpenPlayer}

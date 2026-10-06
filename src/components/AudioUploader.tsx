@@ -46,7 +46,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
   const handleFileSelection = (file: File) => {
     setValidationError(null);
 
-    // Verify monthly credit availability
     if (!hasCreditsAvailable(isSignedIn)) {
       onQuotaExceeded();
       return;
@@ -96,7 +95,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const response = JSON.parse(xhr.responseText);
-          // Deduct 1 guest credit ONLY after a confirmed successful conversion
+          // Deduct 1 credit ONLY after successful conversion
           if (!isSignedIn) {
             consumeGuestCredit();
           }
@@ -258,7 +257,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
               type="button"
               disabled={isUploading || isRecording}
               onClick={() => fileInputRef.current?.click()}
-              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 inline-flex items-center gap-2"
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 inline-flex items-center gap-2 cursor-pointer"
             >
               <FileAudio className="w-4 h-4" />
               <span>Browse Media</span>
@@ -269,7 +268,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                 type="button"
                 disabled={isUploading}
                 onClick={startRecording}
-                className="px-4 py-2.5 border border-slate-300 hover:border-slate-400 bg-white text-slate-700 text-sm font-medium rounded-xl transition-all disabled:opacity-50 inline-flex items-center gap-2"
+                className="px-4 py-2.5 border border-slate-300 hover:border-slate-400 bg-white text-slate-700 text-sm font-medium rounded-xl transition-all disabled:opacity-50 inline-flex items-center gap-2 cursor-pointer"
               >
                 <Mic className="w-4 h-4 text-rose-500" />
                 <span>Record Audio</span>
@@ -278,7 +277,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
               <button
                 type="button"
                 onClick={stopRecording}
-                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-xl transition-all inline-flex items-center gap-2 animate-pulse"
+                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-xl transition-all inline-flex items-center gap-2 animate-pulse cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
                 <span>Stop &amp; Upload ({recordSeconds}s)</span>

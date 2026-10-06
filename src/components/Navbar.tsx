@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layers, Upload, LogIn, LogOut, ChevronDown, User as UserIcon } from 'lucide-react';
+import { Layers, Upload, LogOut, ChevronDown } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { QuotaBadge } from './QuotaBadge';
 
@@ -61,24 +61,21 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         </nav>
 
-        {/* Right Section: Language + Quota Badge (Matching Screenshot) + Auth */}
+        {/* Right Section: Language + Quota Badge + Real Google Auth */}
         <div className="flex items-center gap-3">
-          {/* Language selector matching screenshot */}
           <div className="hidden sm:flex items-center gap-1 text-xs text-slate-600 font-medium cursor-pointer hover:text-slate-900">
             <span>English</span>
             <ChevronDown className="w-3.5 h-3.5" />
           </div>
 
-          {/* Quota Badge & Dropdown Popup (Matching Screenshot) */}
           <QuotaBadge isSignedIn={Boolean(user)} onOpenSignIn={onSignInWithGoogle} />
 
-          {/* Google Sign-In or User Profile */}
           {user ? (
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 transition-colors"
+                className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 {user.photoURL ? (
                   <img
@@ -97,10 +94,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               {userDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95">
                   <div className="px-4 py-2 border-b border-slate-100">
-                    <p className="text-xs font-bold text-slate-900 truncate">{user.displayName || 'Google User'}</p>
+                    <p className="text-xs font-bold text-slate-900 truncate">{user.displayName || 'Google Account'}</p>
                     <p className="text-[11px] text-slate-500 truncate">{user.email}</p>
                     <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
-                      Unlimited Plan
+                      Unlimited Conversions
                     </span>
                   </div>
                   <button
@@ -108,7 +105,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       setUserDropdownOpen(false);
                       onSignOut();
                     }}
-                    className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 font-semibold flex items-center gap-2 transition-colors"
+                    className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 font-semibold flex items-center gap-2 transition-colors cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Sign Out</span>
@@ -119,7 +116,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           ) : (
             <button
               onClick={onSignInWithGoogle}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors shadow-2xs whitespace-nowrap"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors shadow-2xs whitespace-nowrap cursor-pointer"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -133,7 +130,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <button
             onClick={onNewUpload}
-            className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 rounded-xl hover:bg-slate-800 transition-colors whitespace-nowrap shadow-xs"
+            className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 rounded-xl hover:bg-slate-800 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5" />
             <span>Upload</span>

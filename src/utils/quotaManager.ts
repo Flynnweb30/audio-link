@@ -22,7 +22,7 @@ export function getGuestQuota(): GuestQuota {
     const stored = localStorage.getItem(QUOTA_STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      // Automatic monthly reset to 30/30 at the start of each new calendar month
+      // If within the same calendar month, preserve used count
       if (parsed.monthKey === currentMonthKey) {
         const used = Math.min(GUEST_MONTHLY_LIMIT, Math.max(0, Number(parsed.used) || 0));
         return {
@@ -37,7 +37,7 @@ export function getGuestQuota(): GuestQuota {
     console.error('Failed reading quota:', err);
   }
 
-  // Brand-new month initial allowance: 0 used out of 30
+  // Automatic reset to 30/30 at the start of each new calendar month
   const initialQuota: GuestQuota = {
     monthKey: currentMonthKey,
     used: 0,
@@ -60,7 +60,6 @@ function saveGuestQuota(quota: GuestQuota): void {
   }
 }
 
-// Deducts 1 credit only after a verified successful conversion
 export function consumeGuestCredit(): GuestQuota {
   const current = getGuestQuota();
   if (current.used < current.total) {
@@ -73,6 +72,5 @@ export function consumeGuestCredit(): GuestQuota {
 
 export function hasCreditsAvailable(isSignedIn: boolean): boolean {
   if (isSignedIn) return true; // Signed-in users receive unlimited conversions
-  const quota = getGuestQuota();
-  return quota.remaining > 0;
+  return getGuestQuota().remaining > 0;
 }
