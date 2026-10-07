@@ -12,10 +12,10 @@ import {
   Video, 
   Trash2, 
   FileSpreadsheet,
-  Clock
+  AlertCircle 
 } from 'lucide-react';
 import { MediaItem } from '../types';
-import { formatFileSize, copyToClipboard } from '../utils/formatters';
+import { formatFileSize, formatExpiryLabel, copyToClipboard } from '../utils/formatters';
 
 interface FullHistoryModalProps {
   items: MediaItem[];
@@ -44,7 +44,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
   const [previewCopied, setPreviewCopied] = useState(false);
   const [previewDeleteConfirm, setPreviewDeleteConfirm] = useState(false);
 
-  // Group items by date matching Screenshot 3
+  // Group items by exact date categories matching Image 3: RECENT, THIS MONTH, OLDER
   const dateGroups = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -174,11 +174,11 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
   };
 
   const handleExportCsv = () => {
-    const headers = 'ID,Filename,Type,Size_Bytes,Created_At,Expires_At,Direct_URL\n';
+    const headers = 'ID,Filename,Type,Size_Bytes,Expiry,Created_At,Direct_URL\n';
     const rows = filteredItems
       .map(
         (i) =>
-          `"${i.id}","${i.originalName}","${i.mediaType}",${i.size},"${i.createdAt}","${i.expiresAt || 'Permanent'}","${i.directUrl}"`
+          `"${i.id}","${i.originalName}","${i.mediaType}",${i.size},"${i.expiresAt || 'Permanent'}","${i.createdAt}","${i.directUrl}"`
       )
       .join('\n');
     const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -200,6 +200,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
       const isYesterday = d.toDateString() === yesterday.toDateString();
 
       const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
       if (isToday) return timeStr;
       if (isYesterday) return `Yesterday ${timeStr}`;
       return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
@@ -209,22 +210,22 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white w-full max-w-5xl h-[88vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 text-slate-800">
-        {/* Top Control Bar */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+      <div className="bg-white w-full max-w-5xl h-[88vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 text-slate-800">
+        {/* Top Header matching Images 2 & 3 */}
         <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70">
           <div className="flex items-center gap-3">
-            {/* Pill tabs matching Screenshots 2 & 3 */}
-            <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 rounded-xl border border-slate-300/60">
+            {/* Green tab switcher matching Images 2 & 3 */}
+            <div className="flex items-center gap-1.5 p-0.5 bg-slate-200/60 rounded-lg">
               <button
                 type="button"
                 onClick={() => {
                   setActiveTab('folders');
                   setSelectedFolder('all');
                 }}
-                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                className={`px-3.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                   activeTab === 'folders'
-                    ? 'bg-white text-emerald-700 shadow-xs border border-emerald-300'
+                    ? 'bg-white text-emerald-700 shadow-2xs border border-emerald-400/60'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -236,9 +237,9 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                   setActiveTab('date');
                   setSelectedDateFilter('all');
                 }}
-                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                className={`px-3.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                   activeTab === 'date'
-                    ? 'bg-white text-emerald-700 shadow-xs border border-emerald-300'
+                    ? 'bg-white text-emerald-700 shadow-2xs border border-emerald-400/60'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -253,7 +254,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 placeholder="Search history..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-48 shadow-2xs"
+                className="text-xs pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-44"
               />
             </div>
           </div>
@@ -264,20 +265,20 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 <button
                   type="button"
                   onClick={handleBatchCopyAll}
-                  className="px-3 py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                  title="Copy all filtered direct URLs"
+                  className="px-2.5 py-1 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-semibold rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Copy all filtered URLs"
                 >
-                  {batchCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  {batchCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
                   <span>{batchCopied ? 'Copied All' : 'Copy All URLs'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleExportCsv}
-                  className="px-3 py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                  className="px-2.5 py-1 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-semibold rounded-md transition-colors flex items-center gap-1 cursor-pointer"
                   title="Export to CSV"
                 >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                   <span className="hidden sm:inline">Export CSV</span>
                 </button>
               </>
@@ -286,24 +287,25 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
-              title="Close Library (X)"
+              className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
+              title="Close (X)"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Modal Layout matching Screenshots 2 & 3 */}
+        {/* Modal Main Area: Left Sidebar + Table matching Images 2 & 3 */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Sidebar */}
-          <aside className="w-48 sm:w-56 border-r border-slate-200 p-3 sm:p-4 bg-slate-50/50 overflow-y-auto shrink-0 select-none">
+          {/* Left Sidebar */}
+          <aside className="w-48 sm:w-56 border-r border-slate-200 p-3 sm:p-4 bg-slate-50/40 overflow-y-auto shrink-0 select-none">
             {activeTab === 'folders' ? (
+              // Folders Hierarchy matching Image 2
               <div className="space-y-1.5">
                 <button
                   type="button"
                   onClick={() => setSelectedFolder('all')}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     selectedFolder === 'all'
                       ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs'
                       : 'text-slate-700 hover:bg-slate-100'
@@ -335,11 +337,12 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 </button>
               </div>
             ) : (
+              // Date Hierarchy matching Image 3: RECENT, THIS MONTH, OLDER
               <div className="space-y-4">
                 <button
                   type="button"
                   onClick={() => setSelectedDateFilter('all')}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     selectedDateFilter === 'all'
                       ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs'
                       : 'text-slate-700 hover:bg-slate-100'
@@ -355,7 +358,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 {dateGroups.recent.length > 0 && (
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">
-                      Recent
+                      RECENT
                     </p>
                     <div className="space-y-0.5">
                       {dateGroups.recent.map((d) => (
@@ -365,7 +368,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           onClick={() => setSelectedDateFilter(d.key)}
                           className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
                             selectedDateFilter === d.key
-                              ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
+                              ? 'bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200'
                               : 'text-slate-600 hover:bg-slate-100'
                           }`}
                         >
@@ -380,7 +383,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 {dateGroups.thisMonth.length > 0 && (
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">
-                      This Month
+                      THIS MONTH
                     </p>
                     <div className="space-y-0.5">
                       {dateGroups.thisMonth.map((d) => (
@@ -390,7 +393,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           onClick={() => setSelectedDateFilter(d.key)}
                           className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
                             selectedDateFilter === d.key
-                              ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
+                              ? 'bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200'
                               : 'text-slate-600 hover:bg-slate-100'
                           }`}
                         >
@@ -405,7 +408,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 {dateGroups.older.length > 0 && (
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">
-                      Older
+                      OLDER
                     </p>
                     <div className="space-y-0.5">
                       {dateGroups.older.map((d) => (
@@ -415,7 +418,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           onClick={() => setSelectedDateFilter(d.key)}
                           className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
                             selectedDateFilter === d.key
-                              ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
+                              ? 'bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200'
                               : 'text-slate-600 hover:bg-slate-100'
                           }`}
                         >
@@ -430,15 +433,15 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
             )}
           </aside>
 
-          {/* Table matching Screenshots 2 & 3 */}
+          {/* Main Table matching Images 2 & 3 */}
           <main className="flex-1 overflow-y-auto">
             <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 bg-white border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <thead className="sticky top-0 bg-white border-b border-slate-200 text-[11px] font-semibold text-slate-400 uppercase tracking-wider z-10">
                 <tr>
-                  <th className="py-3 px-4 sm:px-6">Filename</th>
-                  <th className="py-3 px-4 text-center">Expiry</th>
-                  <th className="py-3 px-4 text-center">Actions</th>
-                  <th className="py-3 px-4 sm:px-6 text-right">Upload Time</th>
+                  <th className="py-3 px-4 sm:px-6">FILENAME</th>
+                  <th className="py-3 px-4 text-center">EXPIRY</th>
+                  <th className="py-3 px-4 text-center">ACTIONS</th>
+                  <th className="py-3 px-4 sm:px-6 text-right">UPLOAD TIME</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
@@ -452,33 +455,35 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                   filteredItems.map((item) => {
                     const isCopied = copiedId === item.id;
                     const isConfirmingDelete = deleteConfirmId === item.id;
-                    const ext = (item.originalName.split('.').pop() || 'FILE').toUpperCase();
+                    const ext = item.originalName.split('.').pop()?.toUpperCase() || 'FILE';
+                    const expiryInfo = formatExpiryLabel(item.expiresAt);
 
                     return (
                       <tr
                         key={item.id}
                         onClick={() => setPreviewItem(item)}
-                        className="hover:bg-slate-50/90 transition-colors cursor-pointer group"
+                        className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                       >
+                        {/* FILENAME column matching Image 2 & 3 */}
                         <td className="py-3 px-4 sm:px-6">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-0.5">
+                            <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
                               {item.mediaType === 'image' ? (
                                 <img
                                   src={item.directUrl}
                                   alt=""
-                                  className="w-full h-full object-cover rounded"
+                                  className="w-full h-full object-cover"
                                   loading="lazy"
                                 />
                               ) : item.mediaType === 'video' ? (
-                                <Video className="w-5 h-5 text-rose-500" />
+                                <Video className="w-4 h-4 text-slate-700" />
                               ) : (
-                                <Music className="w-5 h-5 text-indigo-600" />
+                                <Music className="w-4 h-4 text-indigo-600" />
                               )}
                             </div>
 
                             <div className="min-w-0">
-                              <p className="font-bold text-slate-800 truncate max-w-xs sm:max-w-md group-hover:text-emerald-700 transition-colors">
+                              <p className="font-semibold text-slate-900 truncate max-w-xs sm:max-w-md group-hover:text-emerald-700 transition-colors">
                                 {item.originalName}
                               </p>
                               <p className="text-[11px] text-slate-400 font-mono">
@@ -488,22 +493,26 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           </div>
                         </td>
 
+                        {/* EXPIRY column with Cyan Permanent badge */}
                         <td className="py-3 px-4 text-center">
-                          <span className={`inline-block border rounded-md px-2.5 py-0.5 text-[10px] font-bold leading-none ${
-                            item.expiresAt
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-sky-50 text-sky-600 border-sky-100'
+                          <span className={`inline-block border rounded-md px-2.5 py-0.5 text-[10px] font-medium leading-none ${
+                            expiryInfo.isPermanent
+                              ? 'bg-sky-50 text-sky-600 border-sky-100'
+                              : expiryInfo.isExpired
+                              ? 'bg-rose-50 text-rose-600 border-rose-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
                           }`}>
-                            {item.expiresAt ? '48h Guest' : 'Permanent'}
+                            {expiryInfo.label}
                           </span>
                         </td>
 
+                        {/* ACTIONS column with clean Copy button */}
                         <td className="py-3 px-4 text-center">
                           <div className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               onClick={(e) => handleCopy(e, item.directUrl, item.id)}
-                              className={`px-3 py-1 rounded text-xs font-semibold border transition-colors cursor-pointer ${
+                              className={`px-3 py-1 rounded text-xs font-medium border transition-colors cursor-pointer ${
                                 isCopied
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                                   : 'bg-white text-slate-600 hover:text-slate-900 border-slate-200 hover:border-slate-300'
@@ -537,7 +546,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                                 type="button"
                                 onClick={() => setDeleteConfirmId(item.id)}
                                 className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                                title="Delete File (X)"
+                                title="Delete File"
                               >
                                 <X className="w-3.5 h-3.5" />
                               </button>
@@ -554,6 +563,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           </div>
                         </td>
 
+                        {/* UPLOAD TIME column */}
                         <td className="py-3 px-4 sm:px-6 text-right font-mono text-[11px] text-slate-400">
                           {formatUploadTimeCol(item.createdAt)}
                         </td>
@@ -566,17 +576,17 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
           </main>
         </div>
 
-        {/* In-Modal Responsive Preview Dialog */}
+        {/* In-Modal Full Preview Dialog */}
         {previewItem && (
           <div 
-            className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in"
             onClick={() => setPreviewItem(null)}
           >
             <div 
-              className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] animate-in zoom-in-95 text-slate-900"
+              className="bg-white rounded-2xl max-w-lg w-[95vw] sm:w-full overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 flex flex-col max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-4 bg-slate-900 text-white flex items-center justify-between gap-3">
+              <div className="p-4 bg-slate-900 text-white flex items-center justify-between gap-3 shrink-0">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -585,11 +595,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     <span className="text-xs text-slate-400 font-mono">
                       {formatFileSize(previewItem.size)}
                     </span>
-                    {previewItem.expiresAt && (
-                      <span className="text-[10px] font-semibold text-amber-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> 48h Retention
-                      </span>
-                    )}
                   </div>
                   <h3 className="text-sm font-bold text-white truncate mt-1" title={previewItem.originalName}>
                     {previewItem.originalName}
@@ -610,25 +615,30 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     title="Copy direct URL"
                   >
                     {previewCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-200" />}
-                    <span className="text-[11px] hidden sm:inline">{previewCopied ? 'Copied' : 'Copy'}</span>
+                    <span className="text-[11px] hidden sm:inline">{previewCopied ? 'Copied!' : 'Copy URL'}</span>
                   </button>
 
                   <div className="relative">
                     <button
                       type="button"
                       onClick={() => setPreviewDeleteConfirm(!previewDeleteConfirm)}
-                      className={`p-2 rounded-xl transition-colors cursor-pointer ${
-                        previewDeleteConfirm ? 'bg-red-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:bg-red-600 hover:text-white'
+                      className={`p-2 rounded-xl transition-colors cursor-pointer active:scale-95 flex items-center gap-1 ${
+                        previewDeleteConfirm ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-red-600 hover:text-white'
                       }`}
-                      title="Delete media (X)"
+                      title="Delete media"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
 
                     {previewDeleteConfirm && (
-                      <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-white border border-red-200 rounded-2xl shadow-2xl z-40 text-left animate-in fade-in zoom-in-95 text-slate-900">
-                        <p className="text-xs font-bold text-red-600 mb-1">Delete Media File?</p>
-                        <p className="text-[11px] text-slate-500 mb-3 leading-snug">Permanently deletes stored file and revokes direct URL.</p>
+                      <div className="absolute right-0 top-full mt-2 w-64 p-3.5 bg-white border border-red-200 rounded-xl shadow-2xl z-40 text-left text-slate-900">
+                        <div className="flex items-center gap-1.5 text-red-600 font-bold text-xs mb-1">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>Delete File?</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mb-3">
+                          Permanently deletes this media and revokes the direct link.
+                        </p>
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
@@ -647,7 +657,8 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                             }}
                             className="px-3 py-1 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-md cursor-pointer inline-flex items-center gap-1"
                           >
-                            Confirm Delete
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
                           </button>
                         </div>
                       </div>
@@ -661,29 +672,29 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                       setPreviewDeleteConfirm(false);
                     }}
                     className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
-                    title="Close Preview (X)"
+                    title="Close (X)"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              <div className="p-4 flex-1 flex flex-col justify-center items-center bg-slate-50 min-h-[220px]">
+              <div className="p-4 overflow-y-auto flex-1 flex flex-col justify-center items-center bg-slate-50 min-h-[200px]">
                 {previewItem.mediaType === 'image' ? (
                   <img
                     src={previewItem.directUrl}
                     alt={previewItem.originalName}
-                    className="max-h-72 w-auto object-contain rounded-2xl shadow-xs border border-slate-200 bg-white"
+                    className="max-h-72 w-auto object-contain rounded-xl shadow-xs border border-slate-200 bg-white"
                   />
                 ) : previewItem.mediaType === 'video' ? (
                   <video
                     src={previewItem.directUrl}
                     controls
-                    className="max-h-72 w-full rounded-2xl bg-black shadow-xs"
+                    className="max-h-72 w-full rounded-xl bg-black shadow-xs"
                     preload="metadata"
                   />
                 ) : (
-                  <div className="w-full bg-white p-6 rounded-2xl border border-slate-200 text-center space-y-3 shadow-xs">
+                  <div className="w-full bg-white p-6 rounded-xl border border-slate-200 text-center space-y-3">
                     <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
                       <Music className="w-6 h-6" />
                     </div>
@@ -698,7 +709,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 )}
               </div>
 
-              <div className="p-3 bg-white border-t border-slate-200 flex items-center justify-between gap-2.5">
+              <div className="p-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
                 <input
                   type="text"
                   readOnly
@@ -712,7 +723,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     setPreviewItem(null);
                     onSelectItem(item);
                   }}
-                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer shrink-0"
+                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                 >
                   Open in Studio
                 </button>

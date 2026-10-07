@@ -165,7 +165,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       const totalCount = batchQueue.length + fileList.length;
       if (totalCount > guestRemaining) {
         setValidationError(
-          `You have ${guestRemaining} guest credit(s) remaining this month. Sign in with Google for unlimited batch conversions.`
+          `You have ${guestRemaining} guest credit(s) remaining today. Sign in with Google for unlimited permanent conversions.`
         );
       }
     }
@@ -220,12 +220,18 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     formData.append('file', file);
     formData.append('folder', 'public');
 
-    const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
+    const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_guest_id') || 'guest');
     formData.append('userId', effectiveUserId);
+    if (user?.email) {
+      formData.append('userEmail', user.email);
+    }
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload', true);
     xhr.setRequestHeader('x-user-id', effectiveUserId);
+    if (user?.email) {
+      xhr.setRequestHeader('x-user-email', user.email);
+    }
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -270,6 +276,9 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
         const safeItem: MediaItem = {
           ...mediaItem,
+          userId: user ? user.uid : effectiveUserId,
+          userEmail: user?.email || undefined,
+          isGuest: !user,
           duration: Number(mediaItem?.duration ?? mediaItem?.metadata?.duration ?? 0),
         };
 
@@ -316,11 +325,11 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     const filesToUploadCount = pendingItems.length;
     if (!user && guestRemaining < filesToUploadCount) {
       if (guestRemaining === 0) {
-        setValidationError('You have 0 guest credits left. Sign in with Google for unlimited batch conversions.');
+        setValidationError('You have 0 guest credits left today. Sign in with Google for unlimited permanent conversions.');
         return;
       }
       setValidationError(
-        `You have ${guestRemaining} credits left, but selected ${filesToUploadCount} files. Please reduce selection or Sign In.`
+        `You have ${guestRemaining} credits left today, but selected ${filesToUploadCount} files. Please reduce selection or Sign In.`
       );
       return;
     }
@@ -334,7 +343,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       batchCompleted: batchQueue.length - pendingItems.length,
     });
 
-    const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
+    const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_guest_id') || 'guest');
     const successfulItems: MediaItem[] = [];
 
     const uploadSingleItem = (item: BatchFileItem): Promise<MediaItem | null> => {
@@ -348,10 +357,16 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           formData.append('file', item.file);
           formData.append('folder', 'public');
           formData.append('userId', effectiveUserId);
+          if (user?.email) {
+            formData.append('userEmail', user.email);
+          }
 
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/api/upload', true);
           xhr.setRequestHeader('x-user-id', effectiveUserId);
+          if (user?.email) {
+            xhr.setRequestHeader('x-user-email', user.email);
+          }
 
           xhr.upload.onprogress = (evt) => {
             if (evt.lengthComputable) {
@@ -393,6 +408,9 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                 if (mediaItem) {
                   const safeMedia: MediaItem = {
                     ...mediaItem,
+                    userId: user ? user.uid : effectiveUserId,
+                    userEmail: user?.email || undefined,
+                    isGuest: !user,
                     duration: Number(mediaItem?.duration ?? mediaItem?.metadata?.duration ?? 0),
                   };
                   setBatchQueue((prev) =>
@@ -734,9 +752,9 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
               <span className="text-slate-400">
                 Guest:{' '}
                 <strong className={guestRemaining === 0 ? "text-rose-400 font-bold" : "text-emerald-400 font-bold font-mono"}>
-                  {guestRemaining}/30
+                  {guestRemaining}/5
                 </strong>{' '}
-                left
+                today
               </span>
             )}
           </div>
@@ -748,9 +766,9 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           <div className="flex items-start gap-3">
             <Lock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <p className="text-xs font-bold text-white">Monthly Guest Limit Reached (0/30 Remaining)</p>
+              <p className="text-xs font-bold text-white">Daily Guest Limit Reached (0/5 Remaining)</p>
               <p className="text-xs text-amber-200/80 mt-0.5">
-                Sign in with Google for unlimited batch uploads and permanent cloud history!
+                Sign in with Google for unlimited permanent conversions and cloud history!
               </p>
             </div>
           </div>
@@ -843,9 +861,9 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
           <p className="text-sm text-slate-400 mb-5 leading-relaxed max-w-md">
             {isQuotaExhausted
-              ? 'Sign in with Google to continue uploading with unlimited batch allowances.'
+              ? 'Sign in with Google to continue uploading with unlimited permanent cloud storage.'
               : uploadMode === 'batch'
-              ? `Select multiple files (audio, video, images) to stream together. ${
+              ? `Select multiple files (audio, video, images) to convert together. ${
                   isLocalEnvironment ? `Local max: ${LOCAL_MAX_BATCH} files.` : ''
                 }`
               : 'Permanent HTTP 206 Byte-Range streaming for MP3, WAV, M4A, OGG, MP4, MOV, WEBM, PNG & JPG.'}
