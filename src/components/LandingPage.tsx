@@ -1,18 +1,18 @@
 import React from 'react';
-import {
-  Radio,
-  ArrowRight,
-  CheckCircle2,
-  Sparkles,
-  Zap,
-  ShieldCheck,
-  Globe2,
-  Music,
-  Video,
-  Image as ImageIcon,
-  Code2,
-  BarChart3,
-  Lock,
+import { 
+  Radio, 
+  ArrowRight, 
+  CheckCircle2, 
+  Sparkles, 
+  Zap, 
+  ShieldCheck, 
+  Globe2, 
+  Music, 
+  Video, 
+  Image as ImageIcon, 
+  Code2, 
+  BarChart3, 
+  Lock, 
   Clock,
   Layers
 } from 'lucide-react';

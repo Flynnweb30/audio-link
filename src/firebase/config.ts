@@ -1,41 +1,60 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
   signOut as firebaseSignOut,
-  User,
+  User 
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-
-const required = (name: string, fallback = ''): string => {
-  const value = import.meta.env[name] || fallback;
-  return String(value);
-};
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  Firestore
+} from 'firebase/firestore';
 
 export const firebaseConfig = {
-  apiKey: required('VITE_FIREBASE_API_KEY'),
-  authDomain: required('VITE_FIREBASE_AUTH_DOMAIN'),
-  projectId: required('VITE_FIREBASE_PROJECT_ID'),
-  storageBucket: required('VITE_FIREBASE_STORAGE_BUCKET'),
-  messagingSenderId: required('VITE_FIREBASE_MESSAGING_SENDER_ID'),
-  appId: required('VITE_FIREBASE_APP_ID'),
-  measurementId: required('VITE_FIREBASE_MEASUREMENT_ID'),
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBFF9m_6NidWN0HxpDG9TRjOLiytOgNbn4",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "url-shortener-61f15.firebaseapp.com",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://url-shortener-61f15-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "url-shortener-61f15",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "url-shortener-61f15.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "641845296081",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:641845296081:web:b8ac03bc766b5a10763ef0",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-Q7NRFE1MZ8"
 };
-
-if (!firebaseConfig.apiKey || !firebaseConfig.authDomain || !firebaseConfig.projectId || !firebaseConfig.appId) {
-  console.warn('Firebase environment variables are incomplete. Google Sign-In/Firestore may be unavailable.');
-}
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+let firestoreInstance: Firestore | null = null;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
+} catch {
+  try {
+    firestoreInstance = initializeFirestore(app, {});
+  } catch (err) {
+    console.warn('Firestore fallback mode initialized');
+  }
+}
+
+export const db = firestoreInstance;
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export async function signInWithGoogle(): Promise<User> {
-  return (await signInWithPopup(auth, googleProvider)).user;
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
+  } catch (error: any) {
+    console.error('Google Sign-In failed:', error);
+    throw error;
+  }
 }
 
 export async function signOutUser(): Promise<void> {

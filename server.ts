@@ -41,11 +41,6 @@ export interface MediaItem {
   views?: number;
   plays?: number;
   downloads?: number;
-  status?: 'processing' | 'success' | 'error' | 'deleted';
-  error?: string;
-  updatedAt?: string;
-  operation?: 'upload' | 'conversion' | 'preview' | 'delete';
-  lastAction?: 'upload' | 'conversion' | 'preview' | 'delete' | 'download';
 }
 
 let mediaRegistry: Record<string, MediaItem> = {};
@@ -206,7 +201,7 @@ function streamMediaFile(
   res.setHeader('Accept-Ranges', 'bytes');
   res.setHeader('Content-Type', mimeType);
   res.setHeader('Cache-Control', 'public, max-age=31536000');
-
+  
   if (downloadName) {
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadName)}"`);
   } else {
@@ -242,18 +237,6 @@ function streamMediaFile(
   }
 }
 
-function safeFilename(filename: string): string | null {
-  try {
-    const decoded = decodeURIComponent(filename);
-    if (!decoded || decoded !== path.basename(decoded) || decoded.includes('\\') || decoded.includes('/') || decoded.includes('..')) {
-      return null;
-    }
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
 function getBaseUrl(req: express.Request): string {
   if (process.env.APP_URL && process.env.APP_URL.startsWith('http')) {
     return process.env.APP_URL.replace(/\/$/, '');
@@ -278,23 +261,6 @@ async function startServer() {
 
   app.get('/healthz', (_req, res) => {
     res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-  });
-
-  app.get('/robots.txt', (_req, res) => {
-    const baseUrl = getBaseUrl(_req);
-    res.type('text/plain').send(
-      `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /?tab=upload\nDisallow: /?tab=history\nDisallow: /?view=\nDisallow: /?play=\nDisallow: /?audio=\nSitemap: ${baseUrl}/sitemap.xml\n`,
-    );
-  });
-
-  app.get('/sitemap.xml', (_req, res) => {
-    const baseUrl = getBaseUrl(_req);
-    res.type('application/xml').send(
-      `<?xml version="1.0" encoding="UTF-8"?>\n` +
-      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-      `  <url><loc>${baseUrl}/</loc></url>\n` +
-      `</urlset>`,
-    );
   });
 
   // Upload single or multiple media
@@ -346,10 +312,6 @@ async function startServer() {
           views: 0,
           plays: 0,
           downloads: 0,
-          status: 'success',
-          operation: 'upload',
-          lastAction: 'upload',
-          updatedAt: new Date().toISOString(),
         };
 
         mediaRegistry[fileId] = mediaItem;
@@ -427,10 +389,6 @@ async function startServer() {
           views: 0,
           plays: 0,
           downloads: 0,
-          status: 'success',
-          operation: 'upload',
-          lastAction: 'upload',
-          updatedAt: new Date().toISOString(),
         };
 
         mediaRegistry[fileId] = mediaItem;
@@ -541,8 +499,7 @@ async function startServer() {
 
   // Direct media stream route
   app.get('/media/:filename', (req, res) => {
-    const filename = safeFilename(req.params.filename);
-    if (!filename) return res.status(400).json({ error: 'Invalid media filename.' });
+    const filename = req.params.filename;
     const fileId = path.parse(filename).name;
     const item = mediaRegistry[fileId] || Object.values(mediaRegistry).find((m) => m.filename === filename);
 
@@ -565,8 +522,6 @@ async function startServer() {
       if (item.mediaType === 'audio' || item.mediaType === 'video') {
         item.plays = (item.plays || 0) + 1;
       }
-      item.lastAction = 'preview';
-      item.updatedAt = new Date().toISOString();
       saveRegistry();
     }
 
@@ -582,8 +537,7 @@ async function startServer() {
 
   // Backward compatibility alias routes
   app.get(['/audio/:filename', '/file/:filename'], (req, res) => {
-    const filename = safeFilename(req.params.filename);
-    if (!filename) return res.status(400).json({ error: 'Invalid media filename.' });
+    const filename = req.params.filename;
     const filePath = path.join(UPLOADS_DIR, filename);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
@@ -607,8 +561,6 @@ async function startServer() {
     }
 
     item.downloads = (item.downloads || 0) + 1;
-    item.lastAction = 'download';
-    item.updatedAt = new Date().toISOString();
     saveRegistry();
 
     const filePath = path.join(UPLOADS_DIR, item.filename);
@@ -625,22 +577,18 @@ async function startServer() {
     }
 
     const filePath = path.join(UPLOADS_DIR, item.filename);
-    try {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    } catch (err) {
-      console.error('Error deleting file:', err);
-      return res.status(500).json({ success: false, error: 'Media file could not be deleted.' });
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (err) {
+        console.error('Error deleting file:', err);
+      }
     }
 
     delete mediaRegistry[id];
     saveRegistry();
 
-    return res.json({
-      success: true,
-      status: 'deleted',
-      deletedId: id,
-      deletedItem: { ...item, status: 'deleted', operation: 'delete', updatedAt: new Date().toISOString() },
-    });
+    return res.json({ success: true, message: 'Media deleted successfully' });
   });
 
   // Catch-all for undefined /api routes so they return JSON, never HTML
@@ -659,16 +607,8 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist'), { index: 'index.html' }));
-    app.get('*', (req, res) => {
-      const isInternal = req.path.startsWith('/api/') ||
-        req.query.tab === 'upload' || req.query.tab === 'history' ||
-        Boolean(req.query.view || req.query.play || req.query.audio);
-      if (isInternal) {
-        res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
-      } else {
-        res.setHeader('X-Robots-Tag', 'index, follow');
-      }
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (_req, res) => {
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });
   } else {

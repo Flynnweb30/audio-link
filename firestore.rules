@@ -1,23 +1,14 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId}/media/{mediaId} {
-      allow read, create, update, delete:
-        if request.auth != null
-        && request.auth.uid == userId
-        && (
-          request.method == 'delete'
-          || (
-            request.resource.data.userId == userId
-            && request.resource.data.id == mediaId
-            && request.resource.data.status in ['processing', 'success', 'error', 'deleted']
-          )
-        );
+    // Allow public read and write for the media registry
+    match /media/{mediaId} {
+      allow read: if true;
+      allow write: if true;
     }
-
-    match /{document=**} {
-      allow read, write: if false;
+    // Allow authenticated users to manage user documents
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }

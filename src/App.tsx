@@ -1,228 +1,148 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { 
+  Radio, 
+  Sparkles, 
+  History, 
+  ShieldCheck, 
+  Code2, 
+  Crown, 
+  LogIn, 
+  LogOut, 
+  Loader2, 
+  Share2, 
+  Music, 
+  Folder 
+} from 'lucide-react';
+import { User, onAuthStateChanged } from 'firebase/auth';
+import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
-import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, signInWithGoogle, signOutUser } from './firebase/config';
-import {
-  saveMediaToFirestore,
-  subscribeToUserMedia,
-  migrateGuestItemsToUser,
-  deleteMediaFromFirestore
-} from './firebase/historySync';
-import { getGuestQuota, deductGuestCredit, deductGuestCredits, GuestQuota } from './utils/quota';
-import {
-  getLocalGuestHistory,
-  saveLocalGuestItem,
-  saveLocalGuestItems,
-  removeLocalGuestItem,
-  clearLocalGuestHistory
-} from './utils/localHistory';
-import { Navbar } from './components/Navbar';
-import { LandingPage } from './components/LandingPage';
+import { auth, db, signInWithGoogle, signOutUser } from './firebase/config';
+import { MediaItem } from './types';
 import { AudioUploader } from './components/AudioUploader';
 import { UrlShareCard } from './components/UrlShareCard';
-import { RecentUploadsGrid } from './components/RecentUploadsGrid';
 import { FullHistoryModal } from './components/FullHistoryModal';
+import { QrCodeModal } from './components/QrCodeModal';
 import { ProPricingModal } from './components/ProPricingModal';
 import { ApiAccessModal } from './components/ApiAccessModal';
 import { SharePlayerView } from './components/SharePlayerView';
-import { SystemFeatures } from './components/SystemFeatures';
-import { MediaItem } from './types';
 
-
-const SEO = {
-  landing: {
-    title: 'AudioLink — Audio, Video & Image to Direct URL',
-    description: 'Turn audio, video, and image files into direct, streamable URLs with browser playback, HTTP range streaming, and shareable links.',
-    canonical: '/',
-    robots: 'index,follow',
-  },
-  upload: {
-    title: 'Media Studio — AudioLink',
-    description: 'Upload media and generate direct URLs from the AudioLink Media Studio.',
-    canonical: '/?tab=upload',
-    robots: 'noindex,nofollow',
-  },
-  history: {
-    title: 'Media History — AudioLink',
-    description: 'Manage your uploaded AudioLink media and direct URLs.',
-    canonical: '/?tab=history',
-    robots: 'noindex,nofollow',
-  },
-  player: {
-    title: 'Media Player — AudioLink',
-    description: 'Play shared AudioLink media directly in your browser.',
-    canonical: '/',
-    robots: 'noindex,nofollow',
-  },
-} as const;
-
-function updateSeo(page: keyof typeof SEO, mediaId?: string | null) {
-  const meta = SEO[page];
-  const title = page === 'player' && mediaId ? `Shared Media Player — AudioLink` : meta.title;
-  document.title = title;
-
-  const upsert = (selector: string, attrs: Record<string, string>, content: string) => {
-    let el = document.head.querySelector(selector) as HTMLMetaElement | HTMLLinkElement | null;
-    if (!el) {
-      el = document.createElement(selector.startsWith('link') ? 'link' : 'meta') as any;
-      document.head.appendChild(el);
-    }
-    Object.entries(attrs).forEach(([key, value]) => el!.setAttribute(key, value));
-    if ('content' in el!) (el as HTMLMetaElement).content = content;
-  };
-
-  upsert('meta[name="description"]', { name: 'description' }, meta.description);
-  upsert('meta[name="robots"]', { name: 'robots' }, meta.robots);
-  upsert('meta[property="og:title"]', { property: 'og:title' }, title);
-  upsert('meta[property="og:description"]', { property: 'og:description' }, meta.description);
-  upsert('meta[property="og:type"]', { property: 'og:type' }, 'website');
-  upsert('meta[property="og:url"]', { property: 'og:url' }, `${window.location.origin}${meta.canonical}`);
-  upsert('meta[name="twitter:card"]', { name: 'twitter:card' }, 'summary');
-  upsert('meta[name="twitter:title"]', { name: 'twitter:title' }, title);
-  upsert('meta[name="twitter:description"]', { name: 'twitter:description' }, meta.description);
-  upsert('link[rel="canonical"]', { rel: 'canonical', href: `${window.location.origin}${meta.canonical}` }, '');
-}
-
-export default function App() {
-  const [currentTab, setCurrentTab] = useState<'landing' | 'upload' | 'history' | 'player'>('landing');
-  const [activeMediaId, setActiveMediaId] = useState<string | null>(null);
-  const [lastUploadedMedia, setLastUploadedMedia] = useState<MediaItem | null>(null);
-  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
-  const [historyModalOpen, setHistoryModalOpen] = useState(false);
-  const [pricingModalOpen, setPricingModalOpen] = useState(false);
-  const [apiModalOpen, setApiModalOpen] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+export const App: React.FC = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
-  const [user, setUser] = useState<User | null>(null);
-  const [guestQuota, setGuestQuota] = useState<GuestQuota>(getGuestQuota());
+  const [items, setItems] = useState<MediaItem[]>([]);
+  const [activeItem, setActiveItem] = useState<MediaItem | null>(null);
+  const [standaloneViewId, setStandaloneViewId] = useState<string | null>(null);
 
-  // Check URL query parameters (?view=:id or ?play=:id)
-  useEffect(() => {
-    const handleUrlChange = () => {
-      const params = new URLSearchParams(window.location.search);
-      const mediaId = params.get('view') || params.get('play') || params.get('audio');
-      const tab = params.get('tab');
-      if (mediaId) {
-        setActiveMediaId(mediaId);
-        setCurrentTab('player');
-      } else {
-        setActiveMediaId(null);
-        if (tab === 'upload') setCurrentTab('upload');
-        else if (!tab && currentTab === 'player') setCurrentTab('upload');
-      }
-    };
+  const [guestCount, setGuestCount] = useState<number>(() => {
+    const saved = localStorage.getItem('audiolink_guest_count');
+    return saved ? parseInt(saved, 10) : 0;
+  });
 
-    handleUrlChange();
-    window.addEventListener('popstate', handleUrlChange);
-    return () => window.removeEventListener('popstate', handleUrlChange);
-  }, []);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isQrOpen, setIsQrOpen] = useState(false);
+  const [isProOpen, setIsProOpen] = useState(false);
+  const [isApiOpen, setIsApiOpen] = useState(false);
 
+  const isFirestoreActiveRef = useRef<boolean>(true);
+
+  // Check query parameter for direct standalone player view
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const hasMediaView = Boolean(params.get('view') || params.get('play') || params.get('audio'));
-    const tab = params.get('tab');
-    if (hasMediaView || currentTab === 'player') updateSeo('player', activeMediaId);
-    else if (tab === 'history' || currentTab === 'history') updateSeo('history');
-    else if (tab === 'upload' || currentTab === 'upload') updateSeo('upload');
-    else if (currentTab === 'landing') updateSeo('landing');
-  }, [currentTab, activeMediaId]);
+    const viewId = params.get('view');
+    if (viewId) {
+      setStandaloneViewId(viewId);
+    }
+  }, []);
 
-  const fetchServerMedia = async () => {
+  // Monitor Firebase Auth state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch items from primary Express backend
+  const fetchBackendMedia = useCallback(async () => {
     try {
-      const localGuest = getLocalGuestHistory();
       const res = await fetch('/api/media');
       if (res.ok) {
         const data = await res.json();
-        const serverItems: MediaItem[] = data.items || [];
-        const serverMap = new Map<string, MediaItem>(serverItems.map((s) => [s.id, s]));
-
-        // Reconcile: keep items that exist on server, plus merge updated metadata
-        const validLocalGuest: MediaItem[] = [];
-        localGuest.forEach((g) => {
-          if (serverMap.has(g.id)) {
-            validLocalGuest.push(serverMap.get(g.id)!);
+        if (data.items && Array.isArray(data.items)) {
+          setItems(data.items);
+          if (!activeItem && data.items.length > 0) {
+            setActiveItem(data.items[0]);
           }
-        });
-
-        // If local guest storage had stale/deleted items, clean it up
-        if (validLocalGuest.length !== localGuest.length) {
-          try {
-            localStorage.setItem('audiolink_guest_history', JSON.stringify(validLocalGuest));
-          } catch {}
         }
-
-        const map = new Map<string, MediaItem>();
-        validLocalGuest.forEach((item) => map.set(item.id, item));
-        serverItems.forEach((item) => map.set(item.id, item));
-
-        const merged = Array.from(map.values()).sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        setMediaList(merged);
-      } else if (localGuest.length > 0) {
-        setMediaList(localGuest);
       }
-    } catch (err) {
-      console.warn('Failed to fetch media list from server, using local history:', err);
-      setMediaList(getLocalGuestHistory());
+    } catch {
+      // Backend temporarily offline; uses cache
     }
-  };
+  }, [activeItem]);
 
   useEffect(() => {
-    let firestoreUnsubscribe: (() => void) | null = null;
+    fetchBackendMedia();
+  }, [fetchBackendMedia]);
 
-    const authUnsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
+  // Firestore real-time sync with ad-blocker & permission-denied protection
+  useEffect(() => {
+    if (!db || !isFirestoreActiveRef.current) return;
 
-      if (currentUser) {
-        firestoreUnsubscribe = subscribeToUserMedia(currentUser.uid, (syncedItems) => {
-          setMediaList(syncedItems);
-        });
+    let unsubscribe: (() => void) | null = null;
+    try {
+      const colRef = collection(db, 'media');
+      unsubscribe = onSnapshot(
+        colRef,
+        (snapshot) => {
+          const remoteItems: MediaItem[] = [];
+          snapshot.forEach((d) => {
+            remoteItems.push(d.data() as MediaItem);
+          });
 
-        const guestItems = getLocalGuestHistory();
-        if (guestItems.length > 0) {
-          try {
-            await migrateGuestItemsToUser(currentUser.uid, guestItems);
-            clearLocalGuestHistory();
-          } catch (migrationError) {
-            console.error('Guest history migration failed; keeping local history:', migrationError);
+          if (remoteItems.length > 0) {
+            setItems((prev) => {
+              const map = new Map<string, MediaItem>();
+              prev.forEach((i) => map.set(i.id, i));
+              remoteItems.forEach((i) => map.set(i.id, { ...map.get(i.id), ...i }));
+              return Array.from(map.values()).sort(
+                (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+              );
+            });
+          }
+        },
+        (error: any) => {
+          // Gracefully mute permissions or ERR_BLOCKED_BY_CLIENT spam
+          if (
+            error?.code === 'permission-denied' ||
+            error?.message?.includes('ERR_BLOCKED_BY_CLIENT') ||
+            error?.code === 'unavailable'
+          ) {
+            isFirestoreActiveRef.current = false;
+            if (unsubscribe) {
+              unsubscribe();
+              unsubscribe = null;
+            }
           }
         }
-      } else {
-        if (firestoreUnsubscribe) {
-          firestoreUnsubscribe();
-          firestoreUnsubscribe = null;
-        }
-        setGuestQuota(getGuestQuota());
-        fetchServerMedia();
-      }
-    });
+      );
+    } catch {
+      isFirestoreActiveRef.current = false;
+    }
 
     return () => {
-      authUnsubscribe();
-      if (firestoreUnsubscribe) firestoreUnsubscribe();
+      if (unsubscribe) unsubscribe();
     };
   }, []);
 
   const handleSignIn = async () => {
-    setAuthError(null);
-    setIsSigningIn(true);
     try {
+      setIsSigningIn(true);
       await signInWithGoogle();
-    } catch (err: any) {
-      console.error('Google Sign-In Error:', err);
-      if (err?.code === 'auth/popup-blocked') {
-        setAuthError('Popup was blocked by your browser. Please allow popups for this domain to sign in with Google.');
-      } else if (err?.code === 'auth/unauthorized-domain') {
-        setAuthError('This domain is not yet listed in Firebase Authorized Domains. Add this domain in your Firebase Authentication settings.');
-      } else if (err?.code !== 'auth/popup-closed-by-user') {
-        setAuthError(err?.message || 'Google Sign-In failed. Please try again.');
-      }
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsSigningIn(false);
     }
@@ -231,288 +151,270 @@ export default function App() {
   const handleSignOut = async () => {
     try {
       await signOutUser();
-      setUser(null);
-      setGuestQuota(getGuestQuota());
-      fetchServerMedia();
     } catch (err) {
-      console.error('Sign Out Error:', err);
+      console.error(err);
     }
   };
 
-  const handleUploadSuccess = async (item: MediaItem) => {
-    if (!item) return;
-    const normalized = { ...item, status: 'success' as const, operation: 'upload' as const, updatedAt: new Date().toISOString() };
-    setLastUploadedMedia(normalized);
+  const handleUploadSuccess = async (newItem: MediaItem) => {
+    setActiveItem(newItem);
+    setItems((prev) => [newItem, ...prev.filter((i) => i.id !== newItem.id)]);
 
-    if (user) {
-      await saveMediaToFirestore(user.uid, normalized);
-    } else {
-      deductGuestCredit();
-      setGuestQuota(getGuestQuota());
-      saveLocalGuestItem(normalized);
-      await fetchServerMedia();
+    if (!user) {
+      const newCount = guestCount + 1;
+      setGuestCount(newCount);
+      localStorage.setItem('audiolink_guest_count', newCount.toString());
     }
 
-    setMediaList((prev) => [normalized, ...prev.filter((m) => m.id !== normalized.id)]);
-    setTimeout(() => window.scrollTo({ top: 120, behavior: 'smooth' }), 100);
+    // Attempt Firestore sync if enabled
+    if (db && isFirestoreActiveRef.current) {
+      try {
+        await setDoc(doc(db, 'media', newItem.id), newItem, { merge: true });
+      } catch (err: any) {
+        if (err?.code === 'permission-denied' || err?.message?.includes('ERR_BLOCKED_BY_CLIENT')) {
+          isFirestoreActiveRef.current = false;
+        }
+      }
+    }
   };
 
-  const handleBatchUploadSuccess = async (items: MediaItem[]) => {
-    if (!items?.length) return;
-    const normalizedItems = items.map((item) => ({
-      ...item,
-      status: 'success' as const,
-      operation: 'upload' as const,
-      updatedAt: new Date().toISOString(),
-    }));
+  const handleBatchUploadSuccess = async (newItems: MediaItem[]) => {
+    if (newItems.length === 0) return;
+    setActiveItem(newItems[0]);
 
-    setLastUploadedMedia(normalizedItems[0]);
-    setMediaList((prev) => [
-      ...normalizedItems,
-      ...prev.filter((existing) => !normalizedItems.some((item) => item.id === existing.id)),
-    ]);
-
-    if (user) {
-      const results = await Promise.allSettled(
-        normalizedItems.map((item) => saveMediaToFirestore(user.uid, item)),
+    setItems((prev) => {
+      const map = new Map<string, MediaItem>();
+      prev.forEach((i) => map.set(i.id, i));
+      newItems.forEach((i) => map.set(i.id, i));
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-      const failed = results.filter((result) => result.status === 'rejected').length;
-      if (failed) throw new Error(`History sync failed for ${failed} uploaded item(s).`);
-    } else {
-      deductGuestCredits(normalizedItems.length);
-      setGuestQuota(getGuestQuota());
-      saveLocalGuestItems(normalizedItems);
-      await fetchServerMedia();
+    });
+
+    if (!user) {
+      const newCount = guestCount + newItems.length;
+      setGuestCount(newCount);
+      localStorage.setItem('audiolink_guest_count', newCount.toString());
     }
 
-    setTimeout(() => window.scrollTo({ top: 120, behavior: 'smooth' }), 100);
-  };
-
-  const handleOpenViewer = (id: string) => {
-    setActiveMediaId(id);
-    setCurrentTab('player');
-    const newUrl = `${window.location.pathname}?view=${id}`;
-    window.history.pushState({ mediaId: id }, '', newUrl);
-  };
-
-  const handleBackToStudio = () => {
-    setActiveMediaId(null);
-    setCurrentTab('upload');
-    const cleanUrl = window.location.pathname;
-    window.history.pushState({}, '', cleanUrl);
-  };
-
-  const handleHistoryUpdate = async (item: MediaItem) => {
-    setMediaList((prev) => [item, ...prev.filter((existing) => existing.id !== item.id)]);
-    if (user) {
-      await saveMediaToFirestore(user.uid, item);
-    } else {
-      saveLocalGuestItem(item);
+    if (db && isFirestoreActiveRef.current) {
+      try {
+        for (const item of newItems) {
+          await setDoc(doc(db, 'media', item.id), item, { merge: true });
+        }
+      } catch {
+        isFirestoreActiveRef.current = false;
+      }
     }
   };
 
-  const handleDeleteMedia = async (id: string) => {
+  const handleDeleteItem = async (id: string) => {
     try {
-      const response = await fetch(`/api/media/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      if (!response.ok && response.status !== 404) {
-        let message = `Delete failed (${response.status}).`;
-        try {
-          const body = await response.json();
-          if (body?.error) message = body.error;
-        } catch {}
-        throw new Error(message);
-      }
+      await fetch(`/api/media/${id}`, { method: 'DELETE' });
+    } catch {}
 
-      if (user) {
-        await deleteMediaFromFirestore(user.uid, id);
-      } else {
-        removeLocalGuestItem(id);
-      }
+    setItems((prev) => prev.filter((i) => i.id !== id));
+    if (activeItem?.id === id) {
+      const remaining = items.filter((i) => i.id !== id);
+      setActiveItem(remaining.length > 0 ? remaining[0] : null);
+    }
 
-      setMediaList((prev) => prev.filter((m) => m.id !== id));
-      if (lastUploadedMedia?.id === id) setLastUploadedMedia(null);
-      if (activeMediaId === id) handleBackToStudio();
-      if (!user) await fetchServerMedia();
-    } catch (err) {
-      console.error('Failed to delete media:', err);
-      setAuthError(err instanceof Error ? err.message : 'Failed to delete media. Please try again.');
+    if (db && isFirestoreActiveRef.current) {
+      try {
+        await deleteDoc(doc(db, 'media', id));
+      } catch {}
     }
   };
 
-  const handleSelectItemFromHistory = (item: MediaItem) => {
-    setHistoryModalOpen(false);
-    setLastUploadedMedia(item);
-    setCurrentTab('upload');
-    setTimeout(() => {
-      window.scrollTo({ top: 120, behavior: 'smooth' });
-    }, 100);
-  };
+  const guestRemaining = Math.max(0, 30 - guestCount);
 
-  const handleNavNewUpload = () => {
-    setLastUploadedMedia(null);
-    setCurrentTab('upload');
-    const cleanUrl = window.location.pathname;
-    window.history.pushState({}, '', cleanUrl);
-  };
+  if (standaloneViewId) {
+    return (
+      <SharePlayerView
+        mediaId={standaloneViewId}
+        onBackToHome={() => {
+          window.history.pushState({}, '', window.location.pathname);
+          setStandaloneViewId(null);
+        }}
+      />
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-100/60 text-slate-900 flex flex-col font-sans antialiased">
-      {/* Top Bar Navigation */}
-      <Navbar
-        currentTab={currentTab}
-        onSelectTab={(tab) => {
-          if (currentTab === 'player') {
-            const cleanUrl = window.location.pathname;
-            window.history.pushState({}, '', cleanUrl);
-          }
-          const nextUrl = tab === 'landing' ? window.location.pathname : `${window.location.pathname}?tab=${tab}`;
-          window.history.pushState({ tab }, '', nextUrl);
-          setCurrentTab(tab);
-        }}
-        onNewUpload={handleNavNewUpload}
-        onOpenFullHistory={() => setHistoryModalOpen(true)}
-        onOpenPricing={() => setPricingModalOpen(true)}
-        onOpenApiModal={() => setApiModalOpen(true)}
-        user={user}
-        guestRemaining={guestQuota.remaining}
-        onSignIn={handleSignIn}
-        onSignOut={handleSignOut}
-        isSigningIn={isSigningIn}
-      />
-
-      {authError && (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-4 w-full">
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-900">
-            <span>{authError}</span>
-            <button
-              onClick={() => setAuthError(null)}
-              className="text-amber-700 hover:text-amber-900 font-bold ml-4"
-            >
-              ✕
-            </button>
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+      {/* Header */}
+      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveItem(null)}>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-md shadow-emerald-500/20">
+              <Radio className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="font-extrabold text-lg text-white tracking-tight flex items-center gap-1.5">
+                AudioLink <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">v2</span>
+              </span>
+              <p className="text-[11px] text-slate-400 hidden sm:block">Audio, Video & Direct Media Streaming</p>
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {currentTab === 'player' && activeMediaId ? (
-          <SharePlayerView
-            mediaId={activeMediaId}
-            onBackToStudio={handleBackToStudio}
-            onDeleteMedia={handleDeleteMedia}
-            onHistoryUpdate={handleHistoryUpdate}
-          />
-        ) : currentTab === 'landing' ? (
-          <LandingPage
-            onLaunchStudio={() => setCurrentTab('upload')}
-            onOpenPricing={() => setPricingModalOpen(true)}
-            onOpenApiModal={() => setApiModalOpen(true)}
-          />
-        ) : (
-          /* Media Studio View */
-          <div className="space-y-8 animate-in fade-in duration-200">
-            {lastUploadedMedia ? (
-              <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-200">
-                <UrlShareCard
-                  media={lastUploadedMedia}
-                  onOpenPlayer={handleOpenViewer}
-                  onUploadAnother={() => setLastUploadedMedia(null)}
-                  onDeleteMedia={handleDeleteMedia}
-                />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setIsHistoryOpen(true)}
+              className="px-3 py-1.5 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <History className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Library</span>
+              {items.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-slate-700 text-[10px] font-mono">
+                  {items.length}
+                </span>
+              )}
+            </button>
 
-                <div className="pt-4 border-t border-slate-200">
-                  <h3 className="text-sm font-semibold text-slate-800 mb-3">
-                    Upload Another Media File
-                  </h3>
-                  <AudioUploader
-                    onUploadSuccess={handleUploadSuccess}
-                    onBatchUploadSuccess={handleBatchUploadSuccess}
-                    onSelectSample={(sampleId) => {
-                      const found = mediaList.find((m) => m.id === sampleId);
-                      if (found) setLastUploadedMedia(found);
-                    }}
-                    user={user}
-                    guestRemaining={guestQuota.remaining}
-                    onSignIn={handleSignIn}
-                    isSigningIn={isSigningIn}
-                  />
-                </div>
+            <button
+              type="button"
+              onClick={() => setIsApiOpen(true)}
+              className="hidden md:flex px-3 py-1.5 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Code2 className="w-3.5 h-3.5 text-indigo-400" />
+              <span>API</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsProOpen(true)}
+              className="hidden sm:flex px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-300 hover:text-amber-200 text-xs font-semibold items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Crown className="w-3.5 h-3.5 text-amber-400" />
+              <span>Pro</span>
+            </button>
+
+            {authLoading ? (
+              <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
+            ) : user ? (
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt={user.displayName || ''} className="w-8 h-8 rounded-full border border-emerald-500/40" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-xs">
+                    {(user.displayName || user.email || 'U')[0].toUpperCase()}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
               </div>
             ) : (
-              <div className="space-y-8">
-                <div className="max-w-2xl">
-                  <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-                    Audio, Video & Image to Direct URL
-                  </h1>
-                  <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                    Upload MP3, WAV, M4A, OGG, MP4, WEBM, PNG, JPG, or AVIF. Generates direct streamable URLs that end with the real extension and play or render in-browser.
-                  </p>
-                </div>
-
-                <AudioUploader
-                  onUploadSuccess={handleUploadSuccess}
-                  onBatchUploadSuccess={handleBatchUploadSuccess}
-                  onSelectSample={(sampleId) => {
-                    const found = mediaList.find((m) => m.id === sampleId);
-                    if (found) setLastUploadedMedia(found);
-                  }}
-                  user={user}
-                  guestRemaining={guestQuota.remaining}
-                  onSignIn={handleSignIn}
-                  isSigningIn={isSigningIn}
-                />
-              </div>
+              <button
+                type="button"
+                disabled={isSigningIn}
+                onClick={handleSignIn}
+                className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                {isSigningIn ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <LogIn className="w-3.5 h-3.5" />
+                )}
+                <span>Sign In</span>
+              </button>
             )}
+          </div>
+        </div>
+      </header>
 
-            {/* Centralized Per-User Recent Uploads Grid (only displays if files exist) */}
-            {mediaList.length > 0 && (
-              <RecentUploadsGrid
-                items={mediaList}
-                onOpenHistory={() => setHistoryModalOpen(true)}
-                onSelectItem={handleSelectItemFromHistory}
-              />
-            )}
+      {/* Main Container */}
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col gap-8">
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>High-Speed Direct Media CDN & Byte-Streaming</span>
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+            Turn Any Audio & Video into a <span className="text-emerald-400">Direct URL</span>
+          </h1>
+          <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto">
+            Upload media and get immediate streamable HTTP links with 206 Byte-Range streaming. Perfect for bots, games, web apps, and embeds.
+          </p>
+        </div>
 
-            <SystemFeatures />
+        {/* Audio/Media Uploader Card */}
+        <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
+          <AudioUploader
+            onUploadSuccess={handleUploadSuccess}
+            onBatchUploadSuccess={handleBatchUploadSuccess}
+            onSelectSample={() => {}}
+            user={user}
+            guestRemaining={guestRemaining}
+            onSignIn={handleSignIn}
+            isSigningIn={isSigningIn}
+          />
+        </div>
+
+        {/* Active Upload Result / Preview */}
+        {activeItem && (
+          <div className="animate-in fade-in zoom-in-95 duration-200">
+            <UrlShareCard
+              item={activeItem}
+              onOpenQr={() => setIsQrOpen(true)}
+              onDeleteItem={handleDeleteItem}
+            />
           </div>
         )}
       </main>
 
-      {/* Full History Modal */}
-      <FullHistoryModal
-        items={mediaList}
-        isOpen={historyModalOpen}
-        onClose={() => setHistoryModalOpen(false)}
-        onSelectItem={handleSelectItemFromHistory}
-        onDeleteItem={handleDeleteMedia}
-      />
-
-      {/* Pro Pricing & Strategy Modal */}
-      <ProPricingModal
-        isOpen={pricingModalOpen}
-        onClose={() => setPricingModalOpen(false)}
-        user={user}
-        onSignIn={handleSignIn}
-      />
-
-      {/* Developer API Access Modal */}
-      <ApiAccessModal
-        isOpen={apiModalOpen}
-        onClose={() => setApiModalOpen(false)}
-      />
-
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-500">
-        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>© {new Date().getFullYear()} AudioLink. Direct media URLs with HTTP 206 streaming.</p>
-          <div className="flex items-center gap-4 text-slate-600">
-            <span>Audio · Video · Images</span>
-            <span aria-hidden="true">·</span>
-            <span>{user ? 'Unlimited Account Plan' : `${guestQuota.remaining}/30 Monthly Free Credits`}</span>
+      <footer className="border-t border-slate-800 bg-slate-900/60 py-6 text-center text-xs text-slate-500 mt-auto">
+        <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p>© {new Date().getFullYear()} AudioLink v2. Centralized Media Service.</p>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsApiOpen(true)} className="hover:text-slate-300">API Documentation</button>
+            <button onClick={() => setIsProOpen(true)} className="hover:text-slate-300">Pro Features</button>
+            <button onClick={() => setIsHistoryOpen(true)} className="hover:text-slate-300">My Storage</button>
           </div>
         </div>
       </footer>
+
+      {/* Modals */}
+      <FullHistoryModal
+        items={items}
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        onSelectItem={(item) => {
+          setActiveItem(item);
+          setIsHistoryOpen(false);
+        }}
+        onDeleteItem={handleDeleteItem}
+      />
+
+      <QrCodeModal
+        isOpen={isQrOpen}
+        onClose={() => setIsQrOpen(false)}
+        url={activeItem?.directUrl || activeItem?.playerUrl || ''}
+        title={activeItem?.originalName || 'AudioLink Media'}
+      />
+
+      <ProPricingModal
+        isOpen={isProOpen}
+        onClose={() => setIsProOpen(false)}
+        onUpgrade={() => {
+          setIsProOpen(false);
+          handleSignIn();
+        }}
+      />
+
+      <ApiAccessModal
+        isOpen={isApiOpen}
+        onClose={() => setIsApiOpen(false)}
+      />
     </div>
   );
-}
+};
+
+export default App;

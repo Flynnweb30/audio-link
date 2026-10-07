@@ -16,9 +16,9 @@ interface NavbarProps {
   isSigningIn?: boolean;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
-  currentTab,
-  onSelectTab,
+export const Navbar: React.FC<NavbarProps> = ({ 
+  currentTab, 
+  onSelectTab, 
   onNewUpload,
   onOpenFullHistory,
   onOpenPricing,
@@ -33,7 +33,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="border-b border-slate-200 bg-white sticky top-0 z-30">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         {/* Wordmark Brand */}
-        <div
+        <div 
           onClick={() => onSelectTab('landing')}
           className="flex items-center gap-2.5 cursor-pointer group shrink-0"
         >
@@ -99,7 +99,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Pro Plan Active</span>
             </button>
           ) : (
-            <div
+            <div 
               title="Guest limit: 30 conversions per month. Resets automatically on the 1st."
               className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 font-mono"
             >

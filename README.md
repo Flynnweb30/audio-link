@@ -1,18 +1,20 @@
-# AudioLink Media Service
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Production-ready React/Vite + Express media-to-direct-URL service.
+# Run and deploy your AI Studio app
 
-## Render
-- Build: `npm install && npm run build`
-- Start: `npm start`
-- Health: `/healthz`
-- Persistent media directory: `/var/data/uploads`
+This contains everything you need to run your app locally.
 
-Set `APP_URL` to the deployed HTTPS origin and provide the `VITE_FIREBASE_*` variables at build time.
+View your app in AI Studio: https://ai.studio/apps/a2119823-6981-41b6-be5b-2b989f7aecb3
 
-## Firestore
-Deploy the included rules with Firebase CLI:
+## Run Locally
 
-`firebase deploy --only firestore:rules`
+**Prerequisites:**  Node.js
 
-The app stores authenticated users' history under `users/{uid}/media/{mediaId}`.
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

@@ -1,7 +1,5 @@
 export type MediaType = 'audio' | 'video' | 'image';
 
-export type MediaStatus = 'processing' | 'success' | 'error' | 'deleted';
-
 export interface MediaItem {
   id: string;
   originalName: string;
@@ -23,11 +21,6 @@ export interface MediaItem {
   views?: number;
   plays?: number;
   downloads?: number;
-  status?: MediaStatus;
-  error?: string;
-  updatedAt?: string;
-  operation?: 'upload' | 'conversion' | 'preview' | 'delete';
-  lastAction?: 'upload' | 'conversion' | 'preview' | 'delete' | 'download';
 }
 
 export type AudioItem = MediaItem;

@@ -1,18 +1,16 @@
-import React, { useState, useMemo, useRef } from 'react';
-import {
-  X,
-  Play,
-  Pause,
-  Folder,
-  FolderOpen,
-  Calendar,
-  Copy,
-  Check,
-  ExternalLink,
-  Search,
-  Music,
-  Video,
-  Image as ImageIcon,
+import React, { useState, useMemo } from 'react';
+import { 
+  X, 
+  Folder, 
+  FolderOpen, 
+  Calendar, 
+  Copy, 
+  Check, 
+  ExternalLink, 
+  Search, 
+  Music, 
+  Video, 
+  Image as ImageIcon, 
   Trash2,
   Download,
   FileSpreadsheet
@@ -45,8 +43,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
   const [previewItem, setPreviewItem] = useState<MediaItem | null>(null);
   const [previewCopied, setPreviewCopied] = useState(false);
   const [previewDeleteConfirm, setPreviewDeleteConfirm] = useState(false);
-  const [previewPlaying, setPreviewPlaying] = useState(false);
-  const previewMediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
 
   const dateGroups = useMemo(() => {
     const today = new Date();
@@ -154,22 +150,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
       }
     });
   }, [items, activeTab, selectedFolder, selectedDateFilter, searchQuery]);
-
-  const togglePreviewPlayback = async () => {
-    const media = previewMediaRef.current;
-    if (!media) return;
-    try {
-      if (media.paused) {
-        await media.play();
-        setPreviewPlaying(true);
-      } else {
-        media.pause();
-        setPreviewPlaying(false);
-      }
-    } catch {
-      setPreviewPlaying(false);
-    }
-  };
 
   if (!isOpen) return null;
 
@@ -584,11 +564,11 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
 
         {/* In-Modal Media Preview Overlay Dialog */}
         {previewItem && (
-          <div
+          <div 
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150"
             onClick={() => setPreviewItem(null)}
           >
-            <div
+            <div 
               className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
             >
@@ -608,19 +588,8 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                   </h3>
                 </div>
 
-                {/* Responsive Preview Actions: Play, Copy, Delete/Close */}
+                {/* Top Action Icons: Copy Icon and X Delete Icon with Confirmation */}
                 <div className="flex items-center gap-1.5 shrink-0 relative">
-                  {previewItem.mediaType !== 'image' && (
-                    <button
-                      type="button"
-                      onClick={togglePreviewPlayback}
-                      className="p-2 bg-slate-800 hover:bg-emerald-600 text-white rounded-xl transition-colors active:scale-95"
-                      title={previewPlaying ? 'Pause preview' : 'Play preview'}
-                      aria-label={previewPlaying ? 'Pause preview' : 'Play preview'}
-                    >
-                      {previewPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={async () => {
@@ -684,7 +653,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                             type="button"
                             onClick={() => {
                               const id = previewItem.id;
-                              setPreviewItem(null); setPreviewPlaying(false);
+                              setPreviewItem(null);
                               setPreviewDeleteConfirm(false);
                               onDeleteItem(id);
                             }}
@@ -702,7 +671,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setPreviewItem(null); setPreviewPlaying(false);
+                      setPreviewItem(null);
                       setPreviewDeleteConfirm(false);
                     }}
                     className="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer text-xs"
@@ -724,10 +693,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                   />
                 ) : previewItem.mediaType === 'video' ? (
                   <video
-                    ref={(el) => { previewMediaRef.current = el; }}
-                    onPlay={() => setPreviewPlaying(true)}
-                    onPause={() => setPreviewPlaying(false)}
-                    onEnded={() => setPreviewPlaying(false)}
                     src={previewItem.directUrl || (previewItem.filename ? `/media/${encodeURIComponent(previewItem.filename)}` : '')}
                     controls
                     className="max-h-72 w-full rounded-xl bg-black shadow-xs"
@@ -740,10 +705,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     </div>
                     <p className="text-xs font-semibold text-slate-700">{previewItem.originalName}</p>
                     <audio
-                      ref={(el) => { previewMediaRef.current = el; }}
-                      onPlay={() => setPreviewPlaying(true)}
-                      onPause={() => setPreviewPlaying(false)}
-                      onEnded={() => setPreviewPlaying(false)}
                       src={previewItem.directUrl || (previewItem.filename ? `/media/${encodeURIComponent(previewItem.filename)}` : '')}
                       controls
                       className="w-full"
@@ -787,7 +748,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                         type="button"
                         onClick={() => {
                           const id = previewItem.id;
-                          setPreviewItem(null); setPreviewPlaying(false);
+                          setPreviewItem(null);
                           setPreviewDeleteConfirm(false);
                           onDeleteItem(id);
                         }}
@@ -819,7 +780,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     type="button"
                     onClick={() => {
                       const item = previewItem;
-                      setPreviewItem(null); setPreviewPlaying(false);
+                      setPreviewItem(null);
                       onSelectItem(item);
                     }}
                     className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"

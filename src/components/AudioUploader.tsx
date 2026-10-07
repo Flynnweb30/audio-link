@@ -1,14 +1,14 @@
 import React, { useState, useRef, DragEvent } from 'react';
-import {
-  UploadCloud,
-  FileAudio,
-  Video,
-  Image as ImageIcon,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-  Mic,
-  Square,
+import { 
+  UploadCloud, 
+  FileAudio, 
+  Video, 
+  Image as ImageIcon, 
+  AlertCircle, 
+  CheckCircle2, 
+  Loader2, 
+  Mic, 
+  Square, 
   Sparkles,
   Layers,
   Lock,
@@ -25,8 +25,8 @@ import { MediaItem, UploadProgress, BatchFileItem } from '../types';
 import { formatFileSize, copyToClipboard } from '../utils/formatters';
 
 interface AudioUploaderProps {
-  onUploadSuccess: (item: MediaItem) => void | Promise<void>;
-  onBatchUploadSuccess?: (items: MediaItem[]) => void | Promise<void>;
+  onUploadSuccess: (item: MediaItem) => void;
+  onBatchUploadSuccess?: (items: MediaItem[]) => void;
   onSelectSample: (sampleId: string) => void;
   user: User | null;
   guestRemaining: number;
@@ -42,32 +42,6 @@ const ALLOWED_EXTS = [
   '.mp4', '.mov', '.webm', '.mkv', '.m4v',
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico'
 ];
-
-function parseMediaResponse(raw: string): { item: MediaItem } {
-  let body: unknown;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    throw new Error('Server returned malformed JSON.');
-  }
-
-  const payload = body as { item?: Partial<MediaItem>; items?: Partial<MediaItem>[]; error?: string };
-  const candidate = payload?.item || payload?.items?.[0];
-  if (!candidate || typeof candidate.id !== 'string' || !candidate.id ||
-      typeof candidate.originalName !== 'string' || typeof candidate.filename !== 'string' ||
-      typeof candidate.directUrl !== 'string' || !candidate.directUrl) {
-    throw new Error(payload?.error || 'Server returned an incomplete media record.');
-  }
-
-  return {
-    item: {
-      ...(candidate as MediaItem),
-      status: candidate.status || 'success',
-      operation: 'upload',
-      updatedAt: candidate.updatedAt || new Date().toISOString(),
-    },
-  };
-}
 
 export const AudioUploader: React.FC<AudioUploaderProps> = ({
   onUploadSuccess,
@@ -251,16 +225,31 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       }
     };
 
-    xhr.onload = async () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        let mediaItem: MediaItem;
-        try {
-          mediaItem = parseMediaResponse(xhr.responseText).item;
-        } catch (error) {
+    xhr.onload = () => {
+      let response: any = null;
+      try {
+        response = JSON.parse(xhr.responseText);
+      } catch (parseErr) {
+        console.error('Failed to parse server response:', parseErr, xhr.responseText);
+        const statusDetail = xhr.statusText ? ` (${xhr.statusText})` : '';
+        setUploadProgress({
+          state: 'error',
+          percentage: 0,
+          errorMessage: xhr.status >= 400
+            ? `Server error ${xhr.status}${statusDetail}. Please try again.`
+            : 'Server returned an invalid format. Please verify your connection.',
+          uploadedMedia: null,
+        });
+        return;
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300 && response) {
+        const mediaItem: MediaItem = response.item || (response.items && response.items[0]);
+        if (!mediaItem) {
           setUploadProgress({
             state: 'error',
             percentage: 0,
-            errorMessage: error instanceof Error ? error.message : 'Server returned an invalid media response.',
+            errorMessage: response.error || 'Server did not return media item details.',
             uploadedMedia: null,
           });
           return;
@@ -274,21 +263,12 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         });
 
         try {
-          await Promise.resolve(onUploadSuccess(mediaItem));
+          onUploadSuccess(mediaItem);
         } catch (callbackErr) {
           console.error('Error in onUploadSuccess callback:', callbackErr);
-          setUploadProgress((prev) => ({
-            ...prev,
-            state: 'error',
-            errorMessage: 'Upload succeeded, but history synchronization failed. Refresh and retry history sync.',
-          }));
         }
       } else {
-        let errorMsg = `Upload failed with status ${xhr.status}${xhr.statusText ? ` (${xhr.statusText})` : ''}.`;
-        try {
-          const body = JSON.parse(xhr.responseText);
-          if (typeof body?.error === 'string') errorMsg = body.error;
-        } catch {}
+        const errorMsg = response?.error || `Upload failed with status ${xhr.status}.`;
         setUploadProgress({
           state: 'error',
           percentage: 0,
@@ -296,10 +276,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           uploadedMedia: null,
         });
       }
-    };
-
-    xhr.ontimeout = () => {
-      setUploadProgress({ state: 'error', percentage: 0, errorMessage: 'Upload timed out after 120 seconds. Please retry.', uploadedMedia: null });
     };
 
     xhr.onerror = () => {
@@ -346,10 +322,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
     const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
     const successfulItems: MediaItem[] = [];
-    const existingCompleted = pendingItems.length < batchQueue.length
-      ? batchQueue.filter((item) => item.status === 'completed' && item.result).map((item) => item.result as MediaItem)
-      : [];
-    if (existingCompleted.length) setBatchCompletedItems(existingCompleted);
 
     // Helper: upload a single batch file with unique error boundaries and progress updates
     const uploadSingleItem = (item: BatchFileItem): Promise<MediaItem | null> => {
@@ -367,7 +339,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/api/upload', true);
-          xhr.timeout = 120000;
           xhr.setRequestHeader('x-user-id', effectiveUserId);
 
           xhr.upload.onprogress = (evt) => {
@@ -382,20 +353,21 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           xhr.onload = () => {
             try {
               if (xhr.status >= 200 && xhr.status < 300) {
-                let mediaItem: MediaItem;
+                let res: any = null;
                 try {
-                  mediaItem = parseMediaResponse(xhr.responseText).item;
-                } catch (error) {
+                  res = JSON.parse(xhr.responseText);
+                } catch {
                   setBatchQueue((prev) =>
                     prev.map((q) =>
                       q.id === item.id
-                        ? { ...q, status: 'error', progress: 0, error: `${item.name}: ${error instanceof Error ? error.message : 'Server returned an invalid media response.'}` }
+                        ? { ...q, status: 'error', progress: 0, error: 'Server returned invalid format.' }
                         : q
                     )
                   );
                   return resolve(null);
                 }
 
+                const mediaItem: MediaItem | undefined = res?.item || (res?.items && res.items[0]);
                 if (mediaItem) {
                   setBatchQueue((prev) =>
                     prev.map((q) =>
@@ -409,19 +381,18 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                   setBatchQueue((prev) =>
                     prev.map((q) =>
                       q.id === item.id
-                        ? { ...q, status: 'error', progress: 0, error: 'Server returned no media item.' }
+                        ? { ...q, status: 'error', progress: 0, error: res?.error || 'No item returned.' }
                         : q
                     )
                   );
                   return resolve(null);
                 }
               } else {
-                let errMsg = `Upload error (${xhr.status}${xhr.statusText ? ` ${xhr.statusText}` : ''})`;
+                let errMsg = `Upload error (${xhr.status})`;
                 try {
                   const res = JSON.parse(xhr.responseText);
-                  if (typeof res?.error === 'string') errMsg = res.error;
+                  if (res.error) errMsg = res.error;
                 } catch {}
-                errMsg = `${item.name}: ${errMsg}`;
                 setBatchQueue((prev) =>
                   prev.map((q) =>
                     q.id === item.id ? { ...q, status: 'error', progress: 0, error: errMsg } : q
@@ -439,15 +410,10 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             }
           };
 
-          xhr.ontimeout = () => {
-            setBatchQueue((prev) => prev.map((q) => q.id === item.id ? { ...q, status: 'error', progress: 0, error: `${item.name}: Upload timed out after 120 seconds.` } : q));
-            resolve(null);
-          };
-
           xhr.onerror = () => {
             setBatchQueue((prev) =>
               prev.map((q) =>
-                q.id === item.id ? { ...q, status: 'error', progress: 0, error: `${item.name}: Network error occurred.` } : q
+                q.id === item.id ? { ...q, status: 'error', progress: 0, error: 'Network error occurred.' } : q
               )
             );
             return resolve(null);
@@ -457,7 +423,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         } catch (outerErr: any) {
           setBatchQueue((prev) =>
             prev.map((q) =>
-              q.id === item.id ? { ...q, status: 'error', progress: 0, error: `${item.name}: ${outerErr?.message || 'Unexpected upload error.'}` } : q
+              q.id === item.id ? { ...q, status: 'error', progress: 0, error: outerErr.message } : q
             )
           );
           resolve(null);
@@ -500,14 +466,11 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     // Concurrency processing finished
     if (successfulItems.length > 0) {
       setBatchCompletedItems((prev) => [...prev, ...successfulItems]);
-      const failedCount = pendingItems.length - successfulItems.length;
       setUploadProgress({
         state: 'success',
         percentage: 100,
-        errorMessage: failedCount > 0
-          ? `${failedCount} file(s) failed. Review each file above and retry only the failed items.`
-          : null,
-        uploadedMedia: successfulItems[0] || existingCompleted[0] || null,
+        errorMessage: null,
+        uploadedMedia: successfulItems[0],
         batchTotal: filesToUploadCount,
         batchCompleted: completedCount,
       });

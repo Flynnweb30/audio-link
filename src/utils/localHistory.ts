@@ -2,26 +2,16 @@ import { MediaItem } from '../types';
 
 const GUEST_HISTORY_KEY = 'audiolink_guest_history';
 
-function normalizeHistoryItem(item: MediaItem): MediaItem | null {
-  if (!item || typeof item.id !== 'string' || !item.id) return null;
-  return {
-    ...item,
-    status: item.status || 'success',
-    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
-  };
-}
-
 export function getLocalGuestHistory(): MediaItem[] {
   try {
     const raw = localStorage.getItem(GUEST_HISTORY_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeHistoryItem).filter(Boolean) as MediaItem[];
+    if (raw) {
+      return JSON.parse(raw);
+    }
   } catch (err) {
     console.error('Failed to read local guest history:', err);
-    return [];
   }
+  return [];
 }
 
 export function saveLocalGuestItem(item: MediaItem): void {
@@ -29,14 +19,12 @@ export function saveLocalGuestItem(item: MediaItem): void {
 }
 
 export function saveLocalGuestItems(newItems: MediaItem[]): void {
-  if (!newItems?.length) return;
+  if (!newItems || newItems.length === 0) return;
   try {
     const existing = getLocalGuestHistory();
-    const normalized = newItems.map(normalizeHistoryItem).filter(Boolean) as MediaItem[];
-    const newIds = new Set(normalized.map((i) => i.id));
+    const newIds = new Set(newItems.map((i) => i.id));
     const filteredExisting = existing.filter((i) => !newIds.has(i.id));
-    const updated = [...normalized, ...filteredExisting]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const updated = [...newItems, ...filteredExisting];
     localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify(updated));
   } catch (err) {
     console.error('Failed to save items to local guest history:', err);
@@ -45,7 +33,8 @@ export function saveLocalGuestItems(newItems: MediaItem[]): void {
 
 export function removeLocalGuestItem(id: string): void {
   try {
-    const updated = getLocalGuestHistory().filter((i) => i.id !== id);
+    const existing = getLocalGuestHistory();
+    const updated = existing.filter((i) => i.id !== id);
     localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify(updated));
   } catch (err) {
     console.error('Failed to delete item from local guest history:', err);
