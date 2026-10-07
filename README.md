@@ -1,15 +1,20 @@
-# AudioLink - Audio to Direct Stream URL
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Convert MP3, WAV, M4A, OGG, and FLAC files into permanent, direct streaming URLs ending in the file extension (e.g., `https://audiolink.onrender.com/audio/aud_1742083921.mp3`).
+# Run and deploy your AI Studio app
 
-## Key Features
-- **Direct Stream URL:** Sends `Content-Disposition: inline` so browsers play the audio natively rather than prompting a file download.
-- **HTTP 206 Byte Ranges:** Full partial content support for scrub seeking, Safari, and lock-screen controls.
-- **Autoplay Ready:** Instant autoplay on link open with an interactive tap-to-play banner for restricted browser policies.
-- **Embeddable:** Provides ready-to-paste `<audio>` tags and QR codes for mobile scanning.
+This contains everything you need to run your app locally.
 
-## Deploying to Render
-1. Connect this repository as a **Render Web Service**.
-2. **Build Command:** `npm install && npm run build`
-3. **Start Command:** `npm start`
-4. **Environment Variables:** `NODE_ENV=production`
+View your app in AI Studio: https://ai.studio/apps/a2119823-6981-41b6-be5b-2b989f7aecb3
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

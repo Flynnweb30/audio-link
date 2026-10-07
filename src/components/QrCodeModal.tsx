@@ -1,103 +1,108 @@
 import React, { useEffect, useState } from 'react';
+import { X, Copy, Check, Download, QrCode } from 'lucide-react';
 import QRCode from 'qrcode';
-import { X, Copy, Check, Smartphone } from 'lucide-react';
 import { copyToClipboard } from '../utils/formatters';
 
 interface QrCodeModalProps {
-  url: string;
-  title: string;
-  subtitle?: string;
   isOpen: boolean;
   onClose: () => void;
+  url: string;
+  title?: string;
 }
 
 export const QrCodeModal: React.FC<QrCodeModalProps> = ({
-  url,
-  title,
-  subtitle,
   isOpen,
   onClose,
+  url,
+  title,
 }) => {
-  const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const [copied, setCopied] = useState(false);
+  const [dataUrl, setDataUrl] = useState<string>('');
+  const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     if (isOpen && url) {
       QRCode.toDataURL(url, {
-        width: 280,
+        width: 300,
         margin: 2,
         color: {
-          dark: '#0f172a',
+          dark: '#020617',
           light: '#ffffff',
         },
       })
-        .then((dataUri) => setQrDataUrl(dataUri))
-        .catch((err) => console.error('Failed to generate QR code', err));
+        .then(setDataUrl)
+        .catch(console.error);
     }
   }, [isOpen, url]);
 
   if (!isOpen) return null;
 
   const handleCopy = async () => {
-    const success = await copyToClipboard(url);
-    if (success) {
+    const ok = await copyToClipboard(url);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-      <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-150">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-md"
-          aria-label="Close"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        <div className="text-center mb-4">
-          <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 mb-2">
-            <Smartphone className="w-5 h-5" />
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl animate-in zoom-in-95"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div className="flex items-center gap-2 text-white font-bold text-sm">
+            <QrCode className="w-4 h-4 text-emerald-400" />
+            <span>Media QR Code</span>
           </div>
-          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
-        </div>
-
-        <div className="flex justify-center my-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
-          {qrDataUrl ? (
-            <img 
-              src={qrDataUrl} 
-              alt="QR Code for Audio URL" 
-              className="w-56 h-56 rounded-md shadow-xs" 
-            />
-          ) : (
-            <div className="w-56 h-56 flex items-center justify-center text-xs text-slate-400">
-              Generating QR Code...
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 flex items-center gap-2">
-          <input
-            type="text"
-            readOnly
-            value={url}
-            className="flex-1 text-xs bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 font-mono select-all truncate"
-          />
           <button
-            onClick={handleCopy}
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800 transition-colors whitespace-nowrap"
+            type="button"
+            onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            title="Close (X)"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <p className="text-[11px] text-slate-400 text-center mt-3">
-          Scan with your phone camera to test playback instantly on iOS or Android.
+        {dataUrl ? (
+          <div className="bg-white p-4 rounded-2xl inline-block shadow-md">
+            <img src={dataUrl} alt="QR Code" className="w-52 h-52 mx-auto" />
+          </div>
+        ) : (
+          <div className="w-52 h-52 mx-auto bg-slate-800 rounded-2xl flex items-center justify-center text-slate-500 text-xs">
+            Generating QR...
+          </div>
+        )}
+
+        <p className="text-xs text-slate-400 truncate font-mono px-2" title={title || url}>
+          {title || url}
         </p>
+
+        <div className="flex items-center gap-2 pt-2">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copied ? 'Copied' : 'Copy URL'}</span>
+          </button>
+
+          {dataUrl && (
+            <a
+              href={dataUrl}
+              download="audiolink-qr.png"
+              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download PNG</span>
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );

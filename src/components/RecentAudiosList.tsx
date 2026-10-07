@@ -6,7 +6,9 @@ import {
   ExternalLink, 
   Download, 
   Trash2, 
+  Music, 
   Search, 
+  Radio, 
   FileAudio,
   QrCode
 } from 'lucide-react';
@@ -37,7 +39,8 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
   );
 
   const handleCopyDirectUrl = async (item: AudioItem) => {
-    const success = await copyToClipboard(item.directAudioUrl);
+    const url = item.directUrl || (item as any).directAudioUrl || '';
+    const success = await copyToClipboard(url);
     if (success) {
       setCopiedId(item.id);
       setTimeout(() => setCopiedId(null), 2000);
@@ -45,12 +48,13 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+    <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+      {/* Header and Search */}
       <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-slate-900">Stored Audio Registry</h2>
+          <h2 className="text-base font-semibold text-slate-900">Stored Audio Registry</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Active audio files with direct permanent stream URLs.
+            All stored audio files with direct permanent stream URLs.
           </p>
         </div>
 
@@ -59,7 +63,7 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search audio tracks..."
+              placeholder="Search audio by name..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="text-xs pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-900 w-48 sm:w-60"
@@ -68,12 +72,14 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
           <button
             onClick={onRefresh}
             className="px-2.5 py-1.5 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+            title="Refresh list"
           >
             Refresh
           </button>
         </div>
       </div>
 
+      {/* Table or Empty State */}
       {filteredItems.length === 0 ? (
         <div className="py-12 text-center">
           <FileAudio className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -94,7 +100,7 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
                 <div className="flex items-center gap-3.5 min-w-0 flex-1">
                   <button
                     onClick={() => onOpenPlayer(item.id)}
-                    className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 flex items-center justify-center shrink-0 transition-colors group"
+                    className="w-10 h-10 rounded-lg bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 flex items-center justify-center shrink-0 transition-colors group"
                     title="Open Playback View"
                   >
                     <Play className="w-4 h-4 fill-current ml-0.5 group-hover:scale-110 transition-transform" />
@@ -108,7 +114,7 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
                       {item.originalName}
                     </p>
                     <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                      <span className="font-mono">{item.mimeType}</span>
+                      <span>{item.mimeType}</span>
                       <span aria-hidden="true">·</span>
                       <span className="font-mono tabular-nums">{formatFileSize(item.size)}</span>
                       <span aria-hidden="true">·</span>
@@ -117,11 +123,12 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
                   </div>
                 </div>
 
+                {/* Actions */}
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => handleCopyDirectUrl(item)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${
                       isCopied
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'

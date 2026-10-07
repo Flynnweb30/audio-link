@@ -3,14 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AudioLink - Audio to Direct Stream URL</title>
-    <meta name="description" content="Upload audio files (MP3, WAV, M4A, OGG) to generate direct streamable URLs and auto-playing web player links." />
-    <meta property="og:title" content="AudioLink - Audio to Direct URL" />
-    <meta property="og:description" content="Upload audio files to generate direct streamable URLs with HTTP 206 byte seeking." />
+    <title>AudioLink v2 - Turn Audio, Video & Images into Direct Streamable URLs</title>
+    
+    <!-- Favicon Configuration -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="canonical" href="https://audiolink-oskn.onrender.com/" />
+
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Convert any audio, video, or image file into permanent, direct streamable HTTP URLs with 206 Byte-Range streaming. Fast, free, and reliable." />
+    <meta name="keywords" content="audio to direct url, audio direct link, streamable mp3 url, video direct link, audio hosting, byte range streaming" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0f172a" />
+
+    <!-- Open Graph (Facebook / Discord / Social Previews) -->
     <meta property="og:type" content="website" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='2'/><path d='M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14'/></svg>" />
+    <meta property="og:url" content="https://audiolink-oskn.onrender.com/" />
+    <meta property="og:title" content="AudioLink v2 - Turn Audio, Video & Images into Direct Streamable URLs" />
+    <meta property="og:description" content="Convert any audio, video, or image file into permanent, direct streamable HTTP URLs with 206 Byte-Range streaming. Fast, free, and reliable." />
+    <meta property="og:image" content="https://audiolink-oskn.onrender.com/favicon.svg" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:url" content="https://audiolink-oskn.onrender.com/" />
+    <meta name="twitter:title" content="AudioLink v2 - Turn Audio, Video & Images into Direct Streamable URLs" />
+    <meta name="twitter:description" content="Convert any audio, video, or image file into permanent, direct streamable HTTP URLs with 206 Byte-Range streaming. Fast, free, and reliable." />
+    <meta name="twitter:image" content="https://audiolink-oskn.onrender.com/favicon.svg" />
+
+    <!-- Structured Data (Schema.org WebApplication) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "AudioLink v2",
+      "url": "https://audiolink-oskn.onrender.com/",
+      "description": "Direct media streaming and conversion tool providing permanent streamable URLs.",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "All",
+      "browserRequirements": "Requires JavaScript",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-indigo-500 selection:text-white">
+  <body class="bg-slate-900 text-slate-100 antialiased selection:bg-emerald-500 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Allow: /audio
+Allow: /video
+Allow: /images
+Disallow: /api/
+Disallow: /*?view=*
+
+Sitemap: https://audiolink-oskn.onrender.com/sitemap.xml

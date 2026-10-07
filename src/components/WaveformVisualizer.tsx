@@ -17,14 +17,16 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({
   barCount = 64,
   height = 54,
 }) => {
+  // Generate deterministic bar heights based on pseudo-audio profile
   const bars = useMemo(() => {
     const list: number[] = [];
     for (let i = 0; i < barCount; i++) {
+      // Natural music envelope (quiet intro, fuller chorus, fading outro)
       const x = i / barCount;
       const envelope = Math.sin(x * Math.PI);
       const wave1 = Math.sin(x * 12) * 0.25;
       const wave2 = Math.cos(x * 24) * 0.15;
-      const noise = (((Math.sin(i * 997) * 10000) % 1) + 1) * 0.25;
+      const noise = ((Math.sin(i * 997) * 10000) % 1 + 1) * 0.25;
       const normalized = Math.min(1, Math.max(0.12, (envelope * 0.65 + wave1 + wave2 + noise) * 0.9));
       list.push(normalized);
     }
@@ -55,6 +57,7 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({
           const barFraction = index / barCount;
           const isPassed = barFraction <= progressFraction;
           
+          // Micro dynamic bounce when playing
           const dynamicBoost = isPlaying && isPassed ? 1 + Math.sin((index + currentTime * 8) * 0.7) * 0.12 : 1;
           const barHeightPx = Math.max(4, Math.round(norm * height * 0.9 * dynamicBoost));
 
@@ -64,13 +67,14 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({
               className="flex-1 rounded-full transition-all duration-75 group-hover:opacity-90"
               style={{
                 height: `${barHeightPx}px`,
-                backgroundColor: isPassed ? '#4f46e5' : '#cbd5e1',
+                backgroundColor: isPassed ? '#0f172a' : '#cbd5e1',
               }}
             />
           );
         })}
       </div>
 
+      {/* Progress handle needle */}
       <div
         className="absolute top-0 bottom-0 w-0.5 bg-indigo-600 pointer-events-none transition-[left] duration-75"
         style={{ left: `${progressFraction * 100}%` }}
