@@ -11,24 +11,35 @@ export interface MediaItem {
   duration?: number;
   width?: number;
   height?: number;
-  userId?: string;
+  userId: string;
+  userEmail?: string;
+  isGuest: boolean;
   folder?: string;
   directUrl: string;
   directAudioUrl?: string;
   playerUrl?: string;
   customSlug?: string;
-  expiresAt?: string;
+  expiresAt?: string; // undefined for permanent logged-in users, ISO string for 48h guests
   password?: string;
   hasPassword?: boolean;
   views?: number;
   plays?: number;
   downloads?: number;
+  status?: 'ready' | 'converted';
+  syncedToFirebase?: boolean;
   metadata?: {
     duration?: number;
     bitrate?: number;
     format?: string;
     sampleRate?: number;
   };
+}
+
+export interface GuestQuotaInfo {
+  remaining: number;
+  maxDaily: number;
+  used: number;
+  retentionHours: number;
 }
 
 export interface UploadProgress {
