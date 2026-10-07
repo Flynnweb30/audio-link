@@ -49,14 +49,14 @@ export const WaveformVisualizer: React.FC<WaveformVisualizerProps> = ({
       className="relative w-full cursor-pointer group select-none py-1"
       title="Click or drag to seek"
     >
-      <div 
+      <div
         className="flex items-center gap-[2.5px] w-full"
         style={{ height: `${height}px` }}
       >
         {bars.map((norm, index) => {
           const barFraction = index / barCount;
           const isPassed = barFraction <= progressFraction;
-          
+
           // Micro dynamic bounce when playing
           const dynamicBoost = isPlaying && isPassed ? 1 + Math.sin((index + currentTime * 8) * 0.7) * 0.12 : 1;
           const barHeightPx = Math.max(4, Math.round(norm * height * 0.9 * dynamicBoost));

@@ -1,18 +1,18 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { 
-  X, 
-  Folder, 
-  FolderOpen, 
-  Calendar, 
-  Copy, 
-  Check,
+import {
+  X,
   Play,
-  Pause, 
-  ExternalLink, 
-  Search, 
-  Music, 
-  Video, 
-  Image as ImageIcon, 
+  Pause,
+  Folder,
+  FolderOpen,
+  Calendar,
+  Copy,
+  Check,
+  ExternalLink,
+  Search,
+  Music,
+  Video,
+  Image as ImageIcon,
   Trash2,
   Download,
   FileSpreadsheet
@@ -26,7 +26,6 @@ interface FullHistoryModalProps {
   onClose: () => void;
   onSelectItem: (item: MediaItem) => void;
   onDeleteItem: (id: string) => void;
-  onMediaAction?: (id: string, action: import('../types').HistoryAction) => void;
 }
 
 export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
@@ -35,7 +34,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
   onClose,
   onSelectItem,
   onDeleteItem,
-  onMediaAction,
 }) => {
   const [activeTab, setActiveTab] = useState<'folders' | 'date'>('folders');
   const [selectedFolder, setSelectedFolder] = useState<string>('all');
@@ -47,8 +45,8 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
   const [previewItem, setPreviewItem] = useState<MediaItem | null>(null);
   const [previewCopied, setPreviewCopied] = useState(false);
   const [previewDeleteConfirm, setPreviewDeleteConfirm] = useState(false);
-  const previewMediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const previewMediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
 
   const dateGroups = useMemo(() => {
     const today = new Date();
@@ -157,13 +155,28 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
     });
   }, [items, activeTab, selectedFolder, selectedDateFilter, searchQuery]);
 
+  const togglePreviewPlayback = async () => {
+    const media = previewMediaRef.current;
+    if (!media) return;
+    try {
+      if (media.paused) {
+        await media.play();
+        setPreviewPlaying(true);
+      } else {
+        media.pause();
+        setPreviewPlaying(false);
+      }
+    } catch {
+      setPreviewPlaying(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   const handleCopy = async (e: React.MouseEvent, url: string, id: string) => {
     e.stopPropagation();
     const ok = await copyToClipboard(url);
     if (ok) {
-      onMediaAction?.(id, 'copy');
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
     }
@@ -463,10 +476,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     return (
                       <tr
                         key={item.id}
-                        onClick={() => {
-                          setPreviewItem(item);
-                          onMediaAction?.(item.id, 'preview');
-                        }}
+                        onClick={() => setPreviewItem(item)}
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                       >
                         <td className="py-3 px-4 sm:px-6">
@@ -493,16 +503,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                               <p className="text-[11px] text-slate-400 font-mono">
                                 {formatFileSize(item.size)} · {ext}
                               </p>
-                              {item.status && item.status !== 'success' && (
-                                <p className={`text-[10px] mt-0.5 font-semibold ${
-                                  item.status === 'error' || item.status === 'delete_error'
-                                    ? 'text-rose-600'
-                                    : 'text-amber-600'
-                                }`}>
-                                  {item.status === 'delete_error' ? 'Delete error' : item.status === 'error' ? 'Upload error' : item.status}
-                                  {item.error ? ` · ${item.error}` : ''}
-                                </p>
-                              )}
                             </div>
                           </div>
                         </td>
@@ -584,11 +584,11 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
 
         {/* In-Modal Media Preview Overlay Dialog */}
         {previewItem && (
-          <div 
+          <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150"
             onClick={() => setPreviewItem(null)}
           >
-            <div 
+            <div
               className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
             >
@@ -608,16 +608,24 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                   </h3>
                 </div>
 
-                {/* Top Action Icons: Copy Icon and X Delete Icon with Confirmation */}
+                {/* Responsive Preview Actions: Play, Copy, Delete/Close */}
                 <div className="flex items-center gap-1.5 shrink-0 relative">
+                  {previewItem.mediaType !== 'image' && (
+                    <button
+                      type="button"
+                      onClick={togglePreviewPlayback}
+                      className="p-2 bg-slate-800 hover:bg-emerald-600 text-white rounded-xl transition-colors active:scale-95"
+                      title={previewPlaying ? 'Pause preview' : 'Play preview'}
+                      aria-label={previewPlaying ? 'Pause preview' : 'Play preview'}
+                    >
+                      {previewPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    disabled={!previewItem.directUrl}
                     onClick={async () => {
-                      if (!previewItem.directUrl) return;
                       const success = await copyToClipboard(previewItem.directUrl);
                       if (success) {
-                        onMediaAction?.(previewItem.id, 'copy');
                         setPreviewCopied(true);
                         setTimeout(() => setPreviewCopied(false), 2000);
                       }
@@ -638,32 +646,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                       </>
                     )}
                   </button>
-
-                  {previewItem.mediaType !== 'image' && previewItem.status === 'success' && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const el = previewMediaRef.current;
-                        if (!el) return;
-                        if (previewPlaying) {
-                          el.pause();
-                          setPreviewPlaying(false);
-                        } else {
-                          try {
-                            await el.play();
-                            setPreviewPlaying(true);
-                          } catch (error) {
-                            console.warn('Preview playback failed:', error);
-                          }
-                        }
-                      }}
-                      className="p-2 bg-slate-800 hover:bg-emerald-600 text-white rounded-xl transition-colors flex items-center gap-1 text-xs font-semibold active:scale-95"
-                      title={previewPlaying ? 'Pause preview' : 'Play preview'}
-                      aria-label={previewPlaying ? 'Pause preview' : 'Play preview'}
-                    >
-                      {previewPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-                    </button>
-                  )}
 
                   {/* X / Delete Icon beside Copy URL with Red Hover & Confirmation */}
                   <div className="relative">
@@ -702,7 +684,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                             type="button"
                             onClick={() => {
                               const id = previewItem.id;
-                              setPreviewItem(null);
+                              setPreviewItem(null); setPreviewPlaying(false);
                               setPreviewDeleteConfirm(false);
                               onDeleteItem(id);
                             }}
@@ -720,7 +702,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setPreviewItem(null);
+                      setPreviewItem(null); setPreviewPlaying(false);
                       setPreviewDeleteConfirm(false);
                     }}
                     className="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer text-xs"
@@ -734,12 +716,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
 
               {/* Media Content Display */}
               <div className="p-4 overflow-y-auto flex-1 flex flex-col justify-center items-center bg-slate-50 min-h-[200px]">
-                {previewItem.status !== 'success' ? (
-                  <div className="w-full rounded-xl border border-rose-200 bg-rose-50 p-5 text-center">
-                    <p className="text-sm font-bold text-rose-700">This History record has no active media URL.</p>
-                    <p className="text-xs text-rose-600 mt-1">{previewItem.error || 'The upload or delete operation did not complete successfully.'}</p>
-                  </div>
-                ) : previewItem.mediaType === 'image' ? (
+                {previewItem.mediaType === 'image' ? (
                   <img
                     src={previewItem.directUrl || (previewItem.filename ? `/media/${encodeURIComponent(previewItem.filename)}` : '')}
                     alt={previewItem.originalName}
@@ -748,11 +725,9 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 ) : previewItem.mediaType === 'video' ? (
                   <video
                     ref={(el) => { previewMediaRef.current = el; }}
-                    onPlay={() => {
-                      setPreviewPlaying(true);
-                      onMediaAction?.(previewItem.id, 'play');
-                    }}
+                    onPlay={() => setPreviewPlaying(true)}
                     onPause={() => setPreviewPlaying(false)}
+                    onEnded={() => setPreviewPlaying(false)}
                     src={previewItem.directUrl || (previewItem.filename ? `/media/${encodeURIComponent(previewItem.filename)}` : '')}
                     controls
                     className="max-h-72 w-full rounded-xl bg-black shadow-xs"
@@ -766,11 +741,9 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     <p className="text-xs font-semibold text-slate-700">{previewItem.originalName}</p>
                     <audio
                       ref={(el) => { previewMediaRef.current = el; }}
-                      onPlay={() => {
-                      setPreviewPlaying(true);
-                      onMediaAction?.(previewItem.id, 'play');
-                    }}
+                      onPlay={() => setPreviewPlaying(true)}
                       onPause={() => setPreviewPlaying(false)}
+                      onEnded={() => setPreviewPlaying(false)}
                       src={previewItem.directUrl || (previewItem.filename ? `/media/${encodeURIComponent(previewItem.filename)}` : '')}
                       controls
                       className="w-full"
@@ -791,12 +764,9 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                   />
                   <button
                     type="button"
-                    disabled={!previewItem.directUrl}
                     onClick={async () => {
-                      if (!previewItem.directUrl) return;
                       const success = await copyToClipboard(previewItem.directUrl);
                       if (success) {
-                        onMediaAction?.(previewItem.id, 'copy');
                         setPreviewCopied(true);
                         setTimeout(() => setPreviewCopied(false), 2000);
                       }
@@ -817,7 +787,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                         type="button"
                         onClick={() => {
                           const id = previewItem.id;
-                          setPreviewItem(null);
+                          setPreviewItem(null); setPreviewPlaying(false);
                           setPreviewDeleteConfirm(false);
                           onDeleteItem(id);
                         }}
@@ -849,7 +819,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     type="button"
                     onClick={() => {
                       const item = previewItem;
-                      setPreviewItem(null);
+                      setPreviewItem(null); setPreviewPlaying(false);
                       onSelectItem(item);
                     }}
                     className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"

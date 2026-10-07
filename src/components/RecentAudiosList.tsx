@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { 
-  Play, 
-  Copy, 
-  Check, 
-  ExternalLink, 
-  Download, 
-  Trash2, 
-  Music, 
-  Search, 
-  Radio, 
+import {
+  Play,
+  Copy,
+  Check,
+  ExternalLink,
+  Download,
+  Trash2,
+  Music,
+  Search,
+  Radio,
   FileAudio,
   QrCode
 } from 'lucide-react';
@@ -107,7 +107,7 @@ export const RecentAudiosList: React.FC<RecentAudiosListProps> = ({
                   </button>
 
                   <div className="min-w-0 flex-1">
-                    <p 
+                    <p
                       onClick={() => onOpenPlayer(item.id)}
                       className="text-sm font-semibold text-slate-900 truncate hover:text-indigo-600 cursor-pointer"
                     >

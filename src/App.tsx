@@ -6,19 +6,19 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, signInWithGoogle, signOutUser } from './firebase/config';
-import { 
-  saveMediaToFirestore, 
-  subscribeToUserMedia, 
+import {
+  saveMediaToFirestore,
+  subscribeToUserMedia,
   migrateGuestItemsToUser,
-  deleteMediaFromFirestore 
+  deleteMediaFromFirestore
 } from './firebase/historySync';
 import { getGuestQuota, deductGuestCredit, deductGuestCredits, GuestQuota } from './utils/quota';
-import { 
-  getLocalGuestHistory, 
-  saveLocalGuestItem, 
+import {
+  getLocalGuestHistory,
+  saveLocalGuestItem,
   saveLocalGuestItems,
-  removeLocalGuestItem, 
-  clearLocalGuestHistory 
+  removeLocalGuestItem,
+  clearLocalGuestHistory
 } from './utils/localHistory';
 import { Navbar } from './components/Navbar';
 import { LandingPage } from './components/LandingPage';
@@ -30,9 +30,62 @@ import { ProPricingModal } from './components/ProPricingModal';
 import { ApiAccessModal } from './components/ApiAccessModal';
 import { SharePlayerView } from './components/SharePlayerView';
 import { SystemFeatures } from './components/SystemFeatures';
-import { MediaItem, HistoryAction } from './types';
-import { sortHistory, markHistoryAction } from './utils/history';
-import { Seo } from './components/Seo';
+import { MediaItem } from './types';
+
+
+const SEO = {
+  landing: {
+    title: 'AudioLink — Audio, Video & Image to Direct URL',
+    description: 'Turn audio, video, and image files into direct, streamable URLs with browser playback, HTTP range streaming, and shareable links.',
+    canonical: '/',
+    robots: 'index,follow',
+  },
+  upload: {
+    title: 'Media Studio — AudioLink',
+    description: 'Upload media and generate direct URLs from the AudioLink Media Studio.',
+    canonical: '/?tab=upload',
+    robots: 'noindex,nofollow',
+  },
+  history: {
+    title: 'Media History — AudioLink',
+    description: 'Manage your uploaded AudioLink media and direct URLs.',
+    canonical: '/?tab=history',
+    robots: 'noindex,nofollow',
+  },
+  player: {
+    title: 'Media Player — AudioLink',
+    description: 'Play shared AudioLink media directly in your browser.',
+    canonical: '/',
+    robots: 'noindex,nofollow',
+  },
+} as const;
+
+function updateSeo(page: keyof typeof SEO, mediaId?: string | null) {
+  const meta = SEO[page];
+  const title = page === 'player' && mediaId ? `Shared Media Player — AudioLink` : meta.title;
+  document.title = title;
+
+  const upsert = (selector: string, attrs: Record<string, string>, content: string) => {
+    let el = document.head.querySelector(selector) as HTMLMetaElement | HTMLLinkElement | null;
+    if (!el) {
+      el = document.createElement(selector.startsWith('link') ? 'link' : 'meta') as any;
+      document.head.appendChild(el);
+    }
+    Object.entries(attrs).forEach(([key, value]) => el!.setAttribute(key, value));
+    if ('content' in el!) (el as HTMLMetaElement).content = content;
+  };
+
+  upsert('meta[name="description"]', { name: 'description' }, meta.description);
+  upsert('meta[name="robots"]', { name: 'robots' }, meta.robots);
+  upsert('meta[property="og:title"]', { property: 'og:title' }, title);
+  upsert('meta[property="og:description"]', { property: 'og:description' }, meta.description);
+  upsert('meta[property="og:type"]', { property: 'og:type' }, 'website');
+  upsert('meta[property="og:url"]', { property: 'og:url' }, `${window.location.origin}${meta.canonical}`);
+  upsert('meta[name="twitter:card"]', { name: 'twitter:card' }, 'summary');
+  upsert('meta[name="twitter:title"]', { name: 'twitter:title' }, title);
+  upsert('meta[name="twitter:description"]', { name: 'twitter:description' }, meta.description);
+  upsert('link[rel="canonical"]', { rel: 'canonical', href: `${window.location.origin}${meta.canonical}` }, '');
+}
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'landing' | 'upload' | 'history' | 'player'>('landing');
@@ -53,14 +106,14 @@ export default function App() {
     const handleUrlChange = () => {
       const params = new URLSearchParams(window.location.search);
       const mediaId = params.get('view') || params.get('play') || params.get('audio');
+      const tab = params.get('tab');
       if (mediaId) {
         setActiveMediaId(mediaId);
         setCurrentTab('player');
       } else {
         setActiveMediaId(null);
-        if (currentTab === 'player') {
-          setCurrentTab('upload');
-        }
+        if (tab === 'upload') setCurrentTab('upload');
+        else if (!tab && currentTab === 'player') setCurrentTab('upload');
       }
     };
 
@@ -69,34 +122,49 @@ export default function App() {
     return () => window.removeEventListener('popstate', handleUrlChange);
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hasMediaView = Boolean(params.get('view') || params.get('play') || params.get('audio'));
+    const tab = params.get('tab');
+    if (hasMediaView || currentTab === 'player') updateSeo('player', activeMediaId);
+    else if (tab === 'history' || currentTab === 'history') updateSeo('history');
+    else if (tab === 'upload' || currentTab === 'upload') updateSeo('upload');
+    else if (currentTab === 'landing') updateSeo('landing');
+  }, [currentTab, activeMediaId]);
+
   const fetchServerMedia = async () => {
     try {
       const localGuest = getLocalGuestHistory();
       const res = await fetch('/api/media');
       if (res.ok) {
         const data = await res.json();
-        const serverItems: MediaItem[] = Array.isArray(data.items) ? data.items : [];
-        const serverMap = new Map(serverItems.map((item) => [item.id, item]));
+        const serverItems: MediaItem[] = data.items || [];
+        const serverMap = new Map<string, MediaItem>(serverItems.map((s) => [s.id, s]));
 
-        // Server remains authoritative for file existence, while local guest
-        // action/error metadata is preserved so History does not jump backward.
-        const mergedMap = new Map<string, MediaItem>();
-        serverItems.forEach((serverItem) => {
-          const localItem = localGuest.find((item) => item.id === serverItem.id);
-          mergedMap.set(serverItem.id, localItem
-            ? { ...serverItem, ...pickHistoryMetadata(localItem, serverItem) }
-            : { ...serverItem, status: serverItem.status || 'success' });
+        // Reconcile: keep items that exist on server, plus merge updated metadata
+        const validLocalGuest: MediaItem[] = [];
+        localGuest.forEach((g) => {
+          if (serverMap.has(g.id)) {
+            validLocalGuest.push(serverMap.get(g.id)!);
+          }
         });
 
-        // Keep only local error/pending records that have no server file.
-        localGuest
-          .filter((item) => !serverMap.has(item.id) && item.status === 'error')
-          .forEach((item) => mergedMap.set(item.id, item));
+        // If local guest storage had stale/deleted items, clean it up
+        if (validLocalGuest.length !== localGuest.length) {
+          try {
+            localStorage.setItem('audiolink_guest_history', JSON.stringify(validLocalGuest));
+          } catch {}
+        }
 
-        const merged = sortHistory(Array.from(mergedMap.values()));
+        const map = new Map<string, MediaItem>();
+        validLocalGuest.forEach((item) => map.set(item.id, item));
+        serverItems.forEach((item) => map.set(item.id, item));
+
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
         setMediaList(merged);
-        saveLocalGuestItems(merged.filter((item) => item.status === 'error'));
-      } else {
+      } else if (localGuest.length > 0) {
         setMediaList(localGuest);
       }
     } catch (err) {
@@ -104,14 +172,6 @@ export default function App() {
       setMediaList(getLocalGuestHistory());
     }
   };
-
-  const pickHistoryMetadata = (localItem: MediaItem, serverItem: MediaItem): Partial<MediaItem> => ({
-    status: serverItem.status || localItem.status || 'success',
-    lastAction: localItem.lastAction || serverItem.lastAction,
-    lastActionAt: localItem.lastActionAt || serverItem.lastActionAt,
-    updatedAt: localItem.updatedAt || serverItem.updatedAt || serverItem.createdAt,
-    error: localItem.error,
-  });
 
   useEffect(() => {
     let firestoreUnsubscribe: (() => void) | null = null;
@@ -126,8 +186,12 @@ export default function App() {
 
         const guestItems = getLocalGuestHistory();
         if (guestItems.length > 0) {
-          await migrateGuestItemsToUser(currentUser.uid, guestItems);
-          clearLocalGuestHistory();
+          try {
+            await migrateGuestItemsToUser(currentUser.uid, guestItems);
+            clearLocalGuestHistory();
+          } catch (migrationError) {
+            console.error('Guest history migration failed; keeping local history:', migrationError);
+          }
         }
       } else {
         if (firestoreUnsubscribe) {
@@ -175,173 +239,103 @@ export default function App() {
     }
   };
 
-  const persistHistoryItem = async (item: MediaItem) => {
-    setMediaList((prev) => sortHistory([item, ...prev.filter((existing) => existing.id !== item.id)]));
-    if (user) {
-      try {
-        await saveMediaToFirestore(user.uid, item);
-      } catch (error) {
-        console.error('History sync failed:', error);
-        setMediaList((prev) =>
-          prev.map((existing) =>
-            existing.id === item.id
-              ? {
-                  ...existing,
-                  status: existing.status === 'success' ? 'success' : existing.status,
-                  error: `History sync pending: ${error instanceof Error ? error.message : 'Firestore unavailable'}`,
-                }
-              : existing
-          )
-        );
-      }
-    } else {
-      saveLocalGuestItem(item);
-    }
-  };
-
   const handleUploadSuccess = async (item: MediaItem) => {
     if (!item) return;
-    const completed = markHistoryAction({ ...item, status: 'success' }, 'upload', {
-      status: 'success',
-      error: undefined,
-    });
-    setLastUploadedMedia(completed);
+    const normalized = { ...item, status: 'success' as const, operation: 'upload' as const, updatedAt: new Date().toISOString() };
+    setLastUploadedMedia(normalized);
 
-    if (!user) {
+    if (user) {
+      await saveMediaToFirestore(user.uid, normalized);
+    } else {
       deductGuestCredit();
       setGuestQuota(getGuestQuota());
+      saveLocalGuestItem(normalized);
+      await fetchServerMedia();
     }
-    await persistHistoryItem(completed);
 
-    if (!user) await fetchServerMedia();
-
+    setMediaList((prev) => [normalized, ...prev.filter((m) => m.id !== normalized.id)]);
     setTimeout(() => window.scrollTo({ top: 120, behavior: 'smooth' }), 100);
-  };
-
-  const handleUploadError = async (item: MediaItem) => {
-    if (!item) return;
-    await persistHistoryItem(item);
   };
 
   const handleBatchUploadSuccess = async (items: MediaItem[]) => {
     if (!items?.length) return;
+    const normalizedItems = items.map((item) => ({
+      ...item,
+      status: 'success' as const,
+      operation: 'upload' as const,
+      updatedAt: new Date().toISOString(),
+    }));
 
-    const completedItems = items.map((item) =>
-      markHistoryAction({ ...item, status: 'success' }, 'upload', {
-        status: 'success',
-        error: undefined,
-      })
-    );
-
-    setLastUploadedMedia(completedItems[0]);
-    if (!user) {
-      deductGuestCredits(completedItems.length);
-      setGuestQuota(getGuestQuota());
-    }
-
-    setMediaList((prev) => sortHistory([
-      ...completedItems,
-      ...prev.filter((existing) => !completedItems.some((item) => item.id === existing.id)),
-    ]));
+    setLastUploadedMedia(normalizedItems[0]);
+    setMediaList((prev) => [
+      ...normalizedItems,
+      ...prev.filter((existing) => !normalizedItems.some((item) => item.id === existing.id)),
+    ]);
 
     if (user) {
       const results = await Promise.allSettled(
-        completedItems.map((item) => saveMediaToFirestore(user.uid, item))
+        normalizedItems.map((item) => saveMediaToFirestore(user.uid, item)),
       );
-      results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          console.error(`History sync failed for ${completedItems[index].id}:`, result.reason);
-        }
-      });
+      const failed = results.filter((result) => result.status === 'rejected').length;
+      if (failed) throw new Error(`History sync failed for ${failed} uploaded item(s).`);
     } else {
-      saveLocalGuestItems(completedItems);
+      deductGuestCredits(normalizedItems.length);
+      setGuestQuota(getGuestQuota());
+      saveLocalGuestItems(normalizedItems);
       await fetchServerMedia();
     }
 
     setTimeout(() => window.scrollTo({ top: 120, behavior: 'smooth' }), 100);
   };
 
-  const handleRecordAction = async (id: string, action: HistoryAction) => {
-    const existing = mediaList.find((item) => item.id === id);
-    if (!existing) return;
-
-    const updated = markHistoryAction(existing, action);
-    setMediaList((prev) => sortHistory(prev.map((item) => item.id === id ? updated : item)));
-
-    try {
-      await fetch(`/api/media/${encodeURIComponent(id)}/action`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': user?.uid || 'guest',
-        },
-        body: JSON.stringify({ action }),
-      });
-    } catch (error) {
-      console.warn('Server action sync failed:', error);
-    }
-
-    if (user) {
-      try {
-        await saveMediaToFirestore(user.uid, updated);
-      } catch (error) {
-        console.warn('Failed to persist media action:', error);
-      }
-    } else {
-      saveLocalGuestItem(updated);
-    }
-  };
-
   const handleOpenViewer = (id: string) => {
-    void handleRecordAction(id, 'preview');
     setActiveMediaId(id);
     setCurrentTab('player');
-    window.history.pushState({ mediaId: id }, '', `${window.location.pathname}?view=${encodeURIComponent(id)}`);
+    const newUrl = `${window.location.pathname}?view=${id}`;
+    window.history.pushState({ mediaId: id }, '', newUrl);
   };
 
   const handleBackToStudio = () => {
     setActiveMediaId(null);
     setCurrentTab('upload');
-    window.history.pushState({}, '', window.location.pathname);
+    const cleanUrl = window.location.pathname;
+    window.history.pushState({}, '', cleanUrl);
+  };
+
+  const handleHistoryUpdate = async (item: MediaItem) => {
+    setMediaList((prev) => [item, ...prev.filter((existing) => existing.id !== item.id)]);
+    if (user) {
+      await saveMediaToFirestore(user.uid, item);
+    } else {
+      saveLocalGuestItem(item);
+    }
   };
 
   const handleDeleteMedia = async (id: string) => {
-    const existing = mediaList.find((item) => item.id === id);
-    if (!existing) return;
-
     try {
       const response = await fetch(`/api/media/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      let payload: any = null;
-      try { payload = await response.json(); } catch {}
-
-      if (!response.ok || payload?.success === false) {
-        throw new Error(payload?.error || `Delete failed with HTTP ${response.status}.`);
+      if (!response.ok && response.status !== 404) {
+        let message = `Delete failed (${response.status}).`;
+        try {
+          const body = await response.json();
+          if (body?.error) message = body.error;
+        } catch {}
+        throw new Error(message);
       }
 
-      const deleted = markHistoryAction(existing, 'delete', {
-        status: 'success',
-        error: undefined,
-      });
-
-      // A successful server delete is final. Remove the history record next.
       if (user) {
         await deleteMediaFromFirestore(user.uid, id);
       } else {
         removeLocalGuestItem(id);
       }
 
-      setMediaList((prev) => prev.filter((item) => item.id !== id));
+      setMediaList((prev) => prev.filter((m) => m.id !== id));
       if (lastUploadedMedia?.id === id) setLastUploadedMedia(null);
       if (activeMediaId === id) handleBackToStudio();
-
-      void deleted;
-    } catch (error) {
-      const failed = markHistoryAction(existing, 'error', {
-        status: 'delete_error',
-        error: error instanceof Error ? error.message : 'Unable to delete media.',
-      });
-      await persistHistoryItem(failed);
-      console.error('Failed to delete media:', error);
+      if (!user) await fetchServerMedia();
+    } catch (err) {
+      console.error('Failed to delete media:', err);
+      setAuthError(err instanceof Error ? err.message : 'Failed to delete media. Please try again.');
     }
   };
 
@@ -362,9 +356,7 @@ export default function App() {
   };
 
   return (
-    <>
-      <Seo currentTab={currentTab} media={activeMediaId ? mediaList.find((item) => item.id === activeMediaId) : undefined} />
-      <div className="min-h-screen bg-slate-100/60 text-slate-900 flex flex-col font-sans antialiased">
+    <div className="min-h-screen bg-slate-100/60 text-slate-900 flex flex-col font-sans antialiased">
       {/* Top Bar Navigation */}
       <Navbar
         currentTab={currentTab}
@@ -373,6 +365,8 @@ export default function App() {
             const cleanUrl = window.location.pathname;
             window.history.pushState({}, '', cleanUrl);
           }
+          const nextUrl = tab === 'landing' ? window.location.pathname : `${window.location.pathname}?tab=${tab}`;
+          window.history.pushState({ tab }, '', nextUrl);
           setCurrentTab(tab);
         }}
         onNewUpload={handleNavNewUpload}
@@ -407,7 +401,7 @@ export default function App() {
             mediaId={activeMediaId}
             onBackToStudio={handleBackToStudio}
             onDeleteMedia={handleDeleteMedia}
-            onMediaAction={handleRecordAction}
+            onHistoryUpdate={handleHistoryUpdate}
           />
         ) : currentTab === 'landing' ? (
           <LandingPage
@@ -458,7 +452,6 @@ export default function App() {
 
                 <AudioUploader
                   onUploadSuccess={handleUploadSuccess}
-                  onUploadError={handleUploadError}
                   onBatchUploadSuccess={handleBatchUploadSuccess}
                   onSelectSample={(sampleId) => {
                     const found = mediaList.find((m) => m.id === sampleId);
@@ -493,7 +486,6 @@ export default function App() {
         onClose={() => setHistoryModalOpen(false)}
         onSelectItem={handleSelectItemFromHistory}
         onDeleteItem={handleDeleteMedia}
-        onMediaAction={handleRecordAction}
       />
 
       {/* Pro Pricing & Strategy Modal */}
@@ -522,6 +514,5 @@ export default function App() {
         </div>
       </footer>
     </div>
-    </>
   );
 }

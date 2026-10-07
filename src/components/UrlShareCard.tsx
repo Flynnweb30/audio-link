@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Copy, 
-  Check, 
-  ExternalLink, 
-  Play, 
-  Pause, 
-  Volume2, 
-  VolumeX, 
-  Download, 
-  QrCode, 
-  Code, 
+import {
+  Copy,
+  Check,
+  ExternalLink,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Download,
+  QrCode,
+  Code,
   CheckCircle2,
   Trash2,
   Eye,
@@ -50,10 +50,10 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const directUrl = media.directUrl || (media as any).directAudioUrl || '';
-  
+
   // Use relative path for in-app browser playback to guarantee same-origin and avoid CORS
-  const playableUrl = media.filename 
-    ? `/media/${encodeURIComponent(media.filename)}` 
+  const playableUrl = media.filename
+    ? `/media/${encodeURIComponent(media.filename)}`
     : directUrl;
 
   useEffect(() => {

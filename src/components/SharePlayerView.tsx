@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Play, 
-  Pause, 
-  RotateCcw, 
-  RotateCw, 
-  Volume2, 
-  VolumeX, 
-  Download, 
-  Share2, 
-  Copy, 
-  Check, 
-  ArrowLeft, 
-  AlertCircle, 
+import {
+  Play,
+  Pause,
+  RotateCcw,
+  RotateCw,
+  Volume2,
+  VolumeX,
+  Download,
+  Share2,
+  Copy,
+  Check,
+  ArrowLeft,
+  AlertCircle,
   QrCode,
   Music2,
   Video as VideoIcon,
@@ -30,14 +30,14 @@ interface SharePlayerViewProps {
   mediaId: string;
   onBackToStudio: () => void;
   onDeleteMedia?: (id: string) => void;
-  onMediaAction?: (id: string, action: import('../types').HistoryAction) => void;
+  onHistoryUpdate?: (item: MediaItem) => void | Promise<void>;
 }
 
 export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   mediaId,
   onBackToStudio,
   onDeleteMedia,
-  onMediaAction,
+  onHistoryUpdate,
 }) => {
   const [mediaItem, setMediaItem] = useState<MediaItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,10 +76,21 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
         }
         return res.json();
       })
-      .then((data) => {
+      .then(async (data) => {
         if (!isCancelled) {
-          setMediaItem(data.item);
+          const normalizedItem: MediaItem = {
+            ...data.item,
+            status: data.item.status || 'success',
+            lastAction: 'preview',
+            updatedAt: data.item.updatedAt || new Date().toISOString(),
+          };
+          setMediaItem(normalizedItem);
           setLoading(false);
+          try {
+            await Promise.resolve(onHistoryUpdate?.(normalizedItem));
+          } catch (historyError) {
+            console.warn('Preview history sync failed:', historyError);
+          }
         }
       })
       .catch((err) => {
@@ -231,7 +242,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   const handleCopy = async (text: string, typeKey: string) => {
     const success = await copyToClipboard(text);
     if (success) {
-      onMediaAction?.(mediaId, 'copy');
       setCopiedType(typeKey);
       setTimeout(() => setCopiedType(null), 2500);
     }
@@ -281,8 +291,8 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   }
 
   const directUrl = mediaItem.directUrl || (mediaItem as any).directAudioUrl || '';
-  const playableUrl = mediaItem.filename 
-    ? `/media/${encodeURIComponent(mediaItem.filename)}` 
+  const playableUrl = mediaItem.filename
+    ? `/media/${encodeURIComponent(mediaItem.filename)}`
     : directUrl;
 
   return (
@@ -326,7 +336,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       </div>
 
       {mediaItem.mediaType !== 'image' && autoplayBlocked && !isPlaying && (
-        <div 
+        <div
           onClick={togglePlay}
           className="cursor-pointer bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-5 rounded-2xl shadow-md flex items-center justify-between gap-4 transition-transform hover:scale-[1.01] active:scale-[0.99] group"
         >
@@ -380,7 +390,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
             <a
               href={`/api/media/${mediaItem.id}/download`}
               download={mediaItem.originalName}
-              onClick={() => void onMediaAction?.(mediaItem.id, 'download')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
@@ -402,7 +411,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
             <video
               ref={videoRef}
               controls
-              onPlay={() => onMediaAction?.(mediaId, 'play')}
               className="max-h-[60vh] w-full"
               src={playableUrl}
               preload="auto"
@@ -412,7 +420,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
           <>
             <audio
               ref={audioRef}
-              onPlay={() => onMediaAction?.(mediaId, 'play')}
               src={playableUrl}
               preload="auto"
             />
@@ -512,7 +519,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
               value={directUrl}
               className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-mono truncate select-all"
             />
-            
+
             {/* Copy Button */}
             <button
               onClick={() => handleCopy(directUrl, 'direct')}

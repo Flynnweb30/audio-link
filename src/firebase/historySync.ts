@@ -9,21 +9,25 @@ import {
 } from 'firebase/firestore';
 import { db } from './config';
 import { MediaItem } from '../types';
-import { sortHistory } from '../utils/history';
+
+const mediaRef = (userId: string, mediaId: string) =>
+  doc(db, 'users', userId, 'media', mediaId);
 
 export async function saveMediaToFirestore(userId: string, item: MediaItem): Promise<void> {
-  const userMediaRef = doc(db, 'users', userId, 'media', item.id);
-  await setDoc(userMediaRef, {
+  const normalized: MediaItem = {
     ...item,
     userId,
-    syncedAt: new Date().toISOString(),
-  }, { merge: true });
+    status: item.status || 'success',
+    updatedAt: new Date().toISOString(),
+  };
+
+  await setDoc(mediaRef(userId, item.id), normalized, { merge: true });
 }
 
 export function subscribeToUserMedia(
   userId: string,
   callback: (items: MediaItem[]) => void,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
 ): () => void {
   const mediaColRef = collection(db, 'users', userId, 'media');
   const q = query(mediaColRef, orderBy('createdAt', 'desc'));
@@ -31,20 +35,31 @@ export function subscribeToUserMedia(
   return onSnapshot(
     q,
     (snapshot) => {
-      callback(sortHistory(snapshot.docs.map((docSnap) => docSnap.data() as MediaItem)));
+      const items: MediaItem[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as MediaItem;
+        if (data.status !== 'deleted') items.push(data);
+      });
+      callback(items);
     },
     (error) => {
       console.warn('Firestore subscription warning:', error);
       onError?.(error);
-    }
+    },
   );
 }
 
 export async function migrateGuestItemsToUser(userId: string, guestItems: MediaItem[]): Promise<void> {
   if (!guestItems.length) return;
-  await Promise.all(guestItems.map((item) => saveMediaToFirestore(userId, item)));
+  const results = await Promise.allSettled(
+    guestItems.map((item) => saveMediaToFirestore(userId, item)),
+  );
+  const failures = results.filter((result) => result.status === 'rejected');
+  if (failures.length) {
+    throw new Error(`Failed to migrate ${failures.length} guest history item(s).`);
+  }
 }
 
 export async function deleteMediaFromFirestore(userId: string, mediaId: string): Promise<void> {
-  await deleteDoc(doc(db, 'users', userId, 'media', mediaId));
+  await deleteDoc(mediaRef(userId, mediaId));
 }

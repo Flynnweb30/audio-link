@@ -1,21 +1,6 @@
 export type MediaType = 'audio' | 'video' | 'image';
 
-export type MediaStatus =
-  | 'uploading'
-  | 'processing'
-  | 'success'
-  | 'error'
-  | 'delete_error';
-
-export type HistoryAction =
-  | 'upload'
-  | 'conversion'
-  | 'preview'
-  | 'copy'
-  | 'play'
-  | 'download'
-  | 'delete'
-  | 'error';
+export type MediaStatus = 'processing' | 'success' | 'error' | 'deleted';
 
 export interface MediaItem {
   id: string;
@@ -25,11 +10,6 @@ export interface MediaItem {
   mimeType: string;
   size: number;
   createdAt: string;
-  updatedAt?: string;
-  status?: MediaStatus;
-  error?: string;
-  lastAction?: HistoryAction;
-  lastActionAt?: string;
   duration?: number;
   width?: number;
   height?: number;
@@ -43,6 +23,11 @@ export interface MediaItem {
   views?: number;
   plays?: number;
   downloads?: number;
+  status?: MediaStatus;
+  error?: string;
+  updatedAt?: string;
+  operation?: 'upload' | 'conversion' | 'preview' | 'delete';
+  lastAction?: 'upload' | 'conversion' | 'preview' | 'delete' | 'download';
 }
 
 export type AudioItem = MediaItem;

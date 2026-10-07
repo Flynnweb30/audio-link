@@ -48,7 +48,7 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-      <div 
+      <div
         className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-150"
       >
         <button
@@ -70,10 +70,10 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
         {/* QR container */}
         <div className="flex justify-center my-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
           {qrDataUrl ? (
-            <img 
-              src={qrDataUrl} 
-              alt="QR Code for Audio URL" 
-              className="w-56 h-56 rounded-md shadow-xs" 
+            <img
+              src={qrDataUrl}
+              alt="QR Code for Audio URL"
+              className="w-56 h-56 rounded-md shadow-xs"
             />
           ) : (
             <div className="w-56 h-56 flex items-center justify-center text-xs text-slate-400">

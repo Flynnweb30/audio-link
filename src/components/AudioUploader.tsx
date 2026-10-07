@@ -1,14 +1,14 @@
 import React, { useState, useRef, DragEvent } from 'react';
-import { 
-  UploadCloud, 
-  FileAudio, 
-  Video, 
-  Image as ImageIcon, 
-  AlertCircle, 
-  CheckCircle2, 
-  Loader2, 
-  Mic, 
-  Square, 
+import {
+  UploadCloud,
+  FileAudio,
+  Video,
+  Image as ImageIcon,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  Mic,
+  Square,
   Sparkles,
   Layers,
   Lock,
@@ -23,13 +23,10 @@ import {
 import { User } from 'firebase/auth';
 import { MediaItem, UploadProgress, BatchFileItem } from '../types';
 import { formatFileSize, copyToClipboard } from '../utils/formatters';
-import { extractMediaItem, getApiErrorMessage } from '../utils/api';
-import { createHistoryErrorItem } from '../utils/history';
 
 interface AudioUploaderProps {
-  onUploadSuccess: (item: MediaItem) => void;
-  onUploadError?: (item: MediaItem) => void;
-  onBatchUploadSuccess?: (items: MediaItem[]) => void;
+  onUploadSuccess: (item: MediaItem) => void | Promise<void>;
+  onBatchUploadSuccess?: (items: MediaItem[]) => void | Promise<void>;
   onSelectSample: (sampleId: string) => void;
   user: User | null;
   guestRemaining: number;
@@ -46,9 +43,34 @@ const ALLOWED_EXTS = [
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico'
 ];
 
+function parseMediaResponse(raw: string): { item: MediaItem } {
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    throw new Error('Server returned malformed JSON.');
+  }
+
+  const payload = body as { item?: Partial<MediaItem>; items?: Partial<MediaItem>[]; error?: string };
+  const candidate = payload?.item || payload?.items?.[0];
+  if (!candidate || typeof candidate.id !== 'string' || !candidate.id ||
+      typeof candidate.originalName !== 'string' || typeof candidate.filename !== 'string' ||
+      typeof candidate.directUrl !== 'string' || !candidate.directUrl) {
+    throw new Error(payload?.error || 'Server returned an incomplete media record.');
+  }
+
+  return {
+    item: {
+      ...(candidate as MediaItem),
+      status: candidate.status || 'success',
+      operation: 'upload',
+      updatedAt: candidate.updatedAt || new Date().toISOString(),
+    },
+  };
+}
+
 export const AudioUploader: React.FC<AudioUploaderProps> = ({
   onUploadSuccess,
-  onUploadError,
   onBatchUploadSuccess,
   onSelectSample,
   user,
@@ -198,207 +220,144 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     setValidationError(null);
   };
 
-  // Upload a single file with strict response validation and isolated failure handling.
+  // Upload single file to server
   const startSingleUpload = (file: File) => {
     setUploadProgress({
       state: 'uploading',
-      percentage: 5,
+      percentage: 10,
       errorMessage: null,
       uploadedMedia: null,
     });
 
-    const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
     const formData = new FormData();
     formData.append('file', file);
     formData.append('folder', 'public');
+
+    const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
     formData.append('userId', effectiveUserId);
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload', true);
     xhr.setRequestHeader('x-user-id', effectiveUserId);
-    xhr.timeout = 120000;
-
-    const fail = (message: string) => {
-      const mediaType = file.type.startsWith('video/')
-        ? 'video'
-        : file.type.startsWith('image/')
-          ? 'image'
-          : 'audio';
-      const historyItem = createHistoryErrorItem({
-        id: `error_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        originalName: file.name,
-        size: file.size,
-        mediaType,
-        mimeType: file.type || 'application/octet-stream',
-        error: message,
-        userId: effectiveUserId,
-      });
-      setUploadProgress({
-        state: 'error',
-        percentage: 0,
-        errorMessage: message,
-        uploadedMedia: null,
-      });
-      onUploadError?.(historyItem);
-    };
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percent = Math.min(95, Math.round((event.loaded / event.total) * 90) + 5);
-        setUploadProgress((prev) => ({ ...prev, state: 'uploading', percentage: percent }));
+        setUploadProgress((prev) => ({
+          ...prev,
+          state: 'uploading',
+          percentage: percent,
+        }));
       }
     };
 
-    xhr.onload = () => {
-      let payload: unknown;
-      try {
-        if (!xhr.responseText?.trim()) {
-          fail(`Server returned an empty response (HTTP ${xhr.status}).`);
+    xhr.onload = async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let mediaItem: MediaItem;
+        try {
+          mediaItem = parseMediaResponse(xhr.responseText).item;
+        } catch (error) {
+          setUploadProgress({
+            state: 'error',
+            percentage: 0,
+            errorMessage: error instanceof Error ? error.message : 'Server returned an invalid media response.',
+            uploadedMedia: null,
+          });
           return;
         }
-        payload = JSON.parse(xhr.responseText);
-      } catch {
-        fail(
-          xhr.status >= 400
-            ? `Server returned invalid JSON for HTTP ${xhr.status}.`
-            : 'Server returned malformed JSON. Please retry the upload.'
-        );
-        return;
+
+        setUploadProgress({
+          state: 'success',
+          percentage: 100,
+          errorMessage: null,
+          uploadedMedia: mediaItem,
+        });
+
+        try {
+          await Promise.resolve(onUploadSuccess(mediaItem));
+        } catch (callbackErr) {
+          console.error('Error in onUploadSuccess callback:', callbackErr);
+          setUploadProgress((prev) => ({
+            ...prev,
+            state: 'error',
+            errorMessage: 'Upload succeeded, but history synchronization failed. Refresh and retry history sync.',
+          }));
+        }
+      } else {
+        let errorMsg = `Upload failed with status ${xhr.status}${xhr.statusText ? ` (${xhr.statusText})` : ''}.`;
+        try {
+          const body = JSON.parse(xhr.responseText);
+          if (typeof body?.error === 'string') errorMsg = body.error;
+        } catch {}
+        setUploadProgress({
+          state: 'error',
+          percentage: 0,
+          errorMessage: errorMsg,
+          uploadedMedia: null,
+        });
       }
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-        fail(getApiErrorMessage(payload, `Upload failed with HTTP ${xhr.status}.`));
-        return;
-      }
-
-      const mediaItem = extractMediaItem(payload);
-      if (!mediaItem) {
-        fail('Upload completed, but the server returned no valid media metadata.');
-        return;
-      }
-
-      const completedItem: MediaItem = {
-        ...mediaItem,
-        status: 'success',
-        lastAction: 'upload',
-        updatedAt: new Date().toISOString(),
-        lastActionAt: new Date().toISOString(),
-      };
-
-      setUploadProgress({
-        state: 'success',
-        percentage: 100,
-        errorMessage: null,
-        uploadedMedia: completedItem,
-      });
-      onUploadSuccess(completedItem);
     };
 
-    xhr.onerror = () => fail('Network connection lost during upload. Please check your connection and retry.');
-    xhr.ontimeout = () => fail('Upload timed out after 120 seconds. Please retry.');
-    xhr.onabort = () => fail('Upload was cancelled before completion.');
+    xhr.ontimeout = () => {
+      setUploadProgress({ state: 'error', percentage: 0, errorMessage: 'Upload timed out after 120 seconds. Please retry.', uploadedMedia: null });
+    };
 
-    try {
-      xhr.send(formData);
-    } catch (error: any) {
-      fail(error?.message || 'Unable to start the upload.');
-    }
+    xhr.onerror = () => {
+      setUploadProgress({
+        state: 'error',
+        percentage: 0,
+        errorMessage: 'Network connection lost during upload. Please check your network and retry.',
+        uploadedMedia: null,
+      });
+    };
+
+    xhr.send(formData);
   };
 
-  // Upload batch items through a small worker pool. Each request has its own
-  // response parser, timeout, status, and History error boundary.
+  // Upload all files in batch queue concurrently with individual isolated error catching
   const startBatchUpload = async () => {
     if (batchQueue.length === 0) return;
 
+    // Filter items needing upload
     const pendingItems = batchQueue.filter((item) => item.status !== 'completed');
     if (pendingItems.length === 0) return;
 
+    // Check guest credits
     const filesToUploadCount = pendingItems.length;
     if (!user && guestRemaining < filesToUploadCount) {
+      if (guestRemaining === 0) {
+        setValidationError('You have 0 guest credits remaining. Please sign in with Google for unlimited batch conversions.');
+        return;
+      }
       setValidationError(
-        guestRemaining === 0
-          ? 'You have 0 guest credits remaining. Please sign in with Google for unlimited batch conversions.'
-          : `You have ${guestRemaining} credits left, but selected ${filesToUploadCount} files. Remove ${filesToUploadCount - guestRemaining} file(s) or sign in for unlimited conversions.`
+        `You have ${guestRemaining} credits left, but selected ${filesToUploadCount} files. Please remove ${filesToUploadCount - guestRemaining} file(s) or Sign In for unlimited batch conversions.`
       );
       return;
     }
 
-    setValidationError(null);
     setUploadProgress({
       state: 'uploading',
-      percentage: 1,
+      percentage: 5,
       errorMessage: null,
       uploadedMedia: null,
-      batchTotal: filesToUploadCount,
-      batchCompleted: 0,
+      batchTotal: batchQueue.length,
+      batchCompleted: batchQueue.length - pendingItems.length,
     });
 
     const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
     const successfulItems: MediaItem[] = [];
-    const itemsQueue = [...pendingItems];
-    let completedCount = 0;
+    const existingCompleted = pendingItems.length < batchQueue.length
+      ? batchQueue.filter((item) => item.status === 'completed' && item.result).map((item) => item.result as MediaItem)
+      : [];
+    if (existingCompleted.length) setBatchCompletedItems(existingCompleted);
 
-    const uploadSingleItem = (item: BatchFileItem): Promise<MediaItem | null> =>
-      new Promise((resolve) => {
-        let settled = false;
-        const finish = (result: MediaItem | null, errorMessage?: string) => {
-          if (settled) return;
-          settled = true;
-
-          if (result) {
-            const completedItem: MediaItem = {
-              ...result,
-              status: 'success',
-              lastAction: 'upload',
-              updatedAt: new Date().toISOString(),
-              lastActionAt: new Date().toISOString(),
-            };
-            setBatchQueue((prev) =>
-              prev.map((q) =>
-                q.id === item.id
-                  ? { ...q, status: 'completed', progress: 100, result: completedItem, error: undefined }
-                  : q
-              )
-            );
-            resolve(completedItem);
-            return;
-          }
-
-          const message = errorMessage || 'Upload failed for this file.';
-          setBatchQueue((prev) =>
-            prev.map((q) =>
-              q.id === item.id ? { ...q, status: 'error', progress: 0, error: message } : q
-            )
-          );
-
-          const ext = `.${item.name.split('.').pop() || ''}`.toLowerCase();
-          const mediaType = item.file.type.startsWith('video/')
-            ? 'video'
-            : item.file.type.startsWith('image/')
-              ? 'image'
-              : ['.mp4', '.mov', '.webm', '.mkv', '.m4v'].includes(ext)
-                ? 'video'
-                : ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico'].includes(ext)
-                  ? 'image'
-                  : 'audio';
-
-          onUploadError?.(
-            createHistoryErrorItem({
-              id: item.id,
-              originalName: item.name,
-              size: item.size,
-              mediaType,
-              mimeType: item.file.type || 'application/octet-stream',
-              error: message,
-              userId: effectiveUserId,
-            })
-          );
-          resolve(null);
-        };
-
+    // Helper: upload a single batch file with unique error boundaries and progress updates
+    const uploadSingleItem = (item: BatchFileItem): Promise<MediaItem | null> => {
+      return new Promise((resolve) => {
         try {
+          // Set status to uploading
           setBatchQueue((prev) =>
-            prev.map((q) => q.id === item.id ? { ...q, status: 'uploading', progress: 5 } : q)
+            prev.map((q) => (q.id === item.id ? { ...q, status: 'uploading', progress: 10 } : q))
           );
 
           const formData = new FormData();
@@ -408,107 +367,166 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/api/upload', true);
-          xhr.setRequestHeader('x-user-id', effectiveUserId);
           xhr.timeout = 120000;
+          xhr.setRequestHeader('x-user-id', effectiveUserId);
 
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const progress = Math.min(95, Math.round((event.loaded / event.total) * 90) + 5);
+          xhr.upload.onprogress = (evt) => {
+            if (evt.lengthComputable) {
+              const p = Math.min(95, Math.round((evt.loaded / evt.total) * 90) + 10);
               setBatchQueue((prev) =>
-                prev.map((q) => q.id === item.id ? { ...q, progress } : q)
+                prev.map((q) => (q.id === item.id ? { ...q, progress: p } : q))
               );
             }
           };
 
           xhr.onload = () => {
-            let payload: unknown;
             try {
-              if (!xhr.responseText?.trim()) {
-                finish(null, `Server returned an empty response (HTTP ${xhr.status}).`);
-                return;
+              if (xhr.status >= 200 && xhr.status < 300) {
+                let mediaItem: MediaItem;
+                try {
+                  mediaItem = parseMediaResponse(xhr.responseText).item;
+                } catch (error) {
+                  setBatchQueue((prev) =>
+                    prev.map((q) =>
+                      q.id === item.id
+                        ? { ...q, status: 'error', progress: 0, error: `${item.name}: ${error instanceof Error ? error.message : 'Server returned an invalid media response.'}` }
+                        : q
+                    )
+                  );
+                  return resolve(null);
+                }
+
+                if (mediaItem) {
+                  setBatchQueue((prev) =>
+                    prev.map((q) =>
+                      q.id === item.id
+                        ? { ...q, status: 'completed', progress: 100, result: mediaItem }
+                        : q
+                    )
+                  );
+                  return resolve(mediaItem);
+                } else {
+                  setBatchQueue((prev) =>
+                    prev.map((q) =>
+                      q.id === item.id
+                        ? { ...q, status: 'error', progress: 0, error: 'Server returned no media item.' }
+                        : q
+                    )
+                  );
+                  return resolve(null);
+                }
+              } else {
+                let errMsg = `Upload error (${xhr.status}${xhr.statusText ? ` ${xhr.statusText}` : ''})`;
+                try {
+                  const res = JSON.parse(xhr.responseText);
+                  if (typeof res?.error === 'string') errMsg = res.error;
+                } catch {}
+                errMsg = `${item.name}: ${errMsg}`;
+                setBatchQueue((prev) =>
+                  prev.map((q) =>
+                    q.id === item.id ? { ...q, status: 'error', progress: 0, error: errMsg } : q
+                  )
+                );
+                return resolve(null);
               }
-              payload = JSON.parse(xhr.responseText);
-            } catch {
-              finish(
-                null,
-                xhr.status >= 400
-                  ? `Server returned invalid JSON for HTTP ${xhr.status}.`
-                  : 'Server returned malformed JSON. This file was not added to History.'
+            } catch (innerErr: any) {
+              setBatchQueue((prev) =>
+                prev.map((q) =>
+                  q.id === item.id ? { ...q, status: 'error', progress: 0, error: innerErr.message } : q
+                )
               );
-              return;
+              return resolve(null);
             }
-
-            if (xhr.status < 200 || xhr.status >= 300) {
-              finish(null, getApiErrorMessage(payload, `Upload failed with HTTP ${xhr.status}.`));
-              return;
-            }
-
-            const mediaItem = extractMediaItem(payload);
-            if (!mediaItem) {
-              finish(null, 'Server response was valid JSON but contained no valid media metadata.');
-              return;
-            }
-
-            finish(mediaItem);
           };
 
-          xhr.onerror = () => finish(null, 'Network error occurred while uploading this file.');
-          xhr.ontimeout = () => finish(null, 'This file upload timed out after 120 seconds.');
-          xhr.onabort = () => finish(null, 'This file upload was cancelled.');
+          xhr.ontimeout = () => {
+            setBatchQueue((prev) => prev.map((q) => q.id === item.id ? { ...q, status: 'error', progress: 0, error: `${item.name}: Upload timed out after 120 seconds.` } : q));
+            resolve(null);
+          };
+
+          xhr.onerror = () => {
+            setBatchQueue((prev) =>
+              prev.map((q) =>
+                q.id === item.id ? { ...q, status: 'error', progress: 0, error: `${item.name}: Network error occurred.` } : q
+              )
+            );
+            return resolve(null);
+          };
+
           xhr.send(formData);
-        } catch (error: any) {
-          finish(null, error?.message || 'Unable to start this file upload.');
+        } catch (outerErr: any) {
+          setBatchQueue((prev) =>
+            prev.map((q) =>
+              q.id === item.id ? { ...q, status: 'error', progress: 0, error: `${item.name}: ${outerErr?.message || 'Unexpected upload error.'}` } : q
+            )
+          );
+          resolve(null);
         }
       });
+    };
+
+    // Managed concurrency worker pool (concurrency limit = 2 for stability & responsiveness)
+    const CONCURRENCY_LIMIT = 2;
+    let completedCount = 0;
+    const itemsQueue = [...pendingItems];
 
     const worker = async () => {
-      while (true) {
-        const item = itemsQueue.shift();
-        if (!item) return;
+      while (itemsQueue.length > 0) {
+        const itemToUpload = itemsQueue.shift();
+        if (!itemToUpload) break;
 
-        const result = await uploadSingleItem(item);
-        if (result) successfulItems.push(result);
+        const result = await uploadSingleItem(itemToUpload);
+        if (result) {
+          successfulItems.push(result);
+        }
+        completedCount++;
 
-        completedCount += 1;
+        const currentPercentage = Math.min(100, Math.round((completedCount / filesToUploadCount) * 100));
         setUploadProgress((prev) => ({
           ...prev,
-          percentage: Math.round((completedCount / filesToUploadCount) * 100),
+          percentage: currentPercentage,
           batchCompleted: completedCount,
         }));
       }
     };
 
     const workers = Array.from(
-      { length: Math.min(2, itemsQueue.length) },
+      { length: Math.min(CONCURRENCY_LIMIT, itemsQueue.length) },
       () => worker()
     );
+
     await Promise.all(workers);
 
+    // Concurrency processing finished
     if (successfulItems.length > 0) {
-      setBatchCompletedItems((prev) => {
-        const merged = new Map(prev.map((item) => [item.id, item]));
-        successfulItems.forEach((item) => merged.set(item.id, item));
-        return Array.from(merged.values());
-      });
+      setBatchCompletedItems((prev) => [...prev, ...successfulItems]);
+      const failedCount = pendingItems.length - successfulItems.length;
       setUploadProgress({
         state: 'success',
         percentage: 100,
-        errorMessage: successfulItems.length < filesToUploadCount
-          ? `${filesToUploadCount - successfulItems.length} file(s) failed. Successful files were added to History.`
+        errorMessage: failedCount > 0
+          ? `${failedCount} file(s) failed. Review each file above and retry only the failed items.`
           : null,
-        uploadedMedia: successfulItems[0],
+        uploadedMedia: successfulItems[0] || existingCompleted[0] || null,
         batchTotal: filesToUploadCount,
         batchCompleted: completedCount,
       });
-      onBatchUploadSuccess?.(successfulItems);
+
+      try {
+        if (onBatchUploadSuccess) {
+          onBatchUploadSuccess(successfulItems);
+        } else {
+          onUploadSuccess(successfulItems[0]);
+        }
+      } catch (cbErr) {
+        console.error('Error invoking batch callback:', cbErr);
+      }
     } else {
       setUploadProgress({
         state: 'error',
-        percentage: 100,
-        errorMessage: 'All uploads in the batch failed. Each failure was recorded in History.',
+        percentage: 0,
+        errorMessage: 'All uploads in the batch failed. Please check file formats and try again.',
         uploadedMedia: null,
-        batchTotal: filesToUploadCount,
-        batchCompleted: completedCount,
       });
     }
   };
