@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 const PORT = Number(process.env.PORT) || 3000;
 const UPLOADS_DIR = process.env.DATA_DIR || process.env.PERSISTENT_DIR || path.resolve(__dirname, 'uploads');
 const METADATA_FILE = path.join(UPLOADS_DIR, 'metadata.json');
+const PRODUCTION_ORIGIN = 'https://audiolink-oskn.onrender.com';
 
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -240,6 +241,9 @@ function getBaseUrl(req: express.Request): string {
   if (process.env.APP_URL && process.env.APP_URL.startsWith('http')) {
     return process.env.APP_URL.replace(/\/$/, '');
   }
+  if (process.env.NODE_ENV === 'production') {
+    return PRODUCTION_ORIGIN;
+  }
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
   const host = req.headers['x-forwarded-host'] || req.get('host') || `localhost:${PORT}`;
   return `${protocol}://${host}`;
@@ -262,40 +266,48 @@ async function startServer() {
     res.json({ status: 'healthy', timestamp: new Date().toISOString() });
   });
 
-  // SEO: Dynamic sitemap endpoint reflecting all public media
-  app.get('/sitemap.xml', (req, res) => {
-    res.setHeader('Content-Type', 'application/xml');
-    const baseUrl = getBaseUrl(req);
-    const dateToday = new Date().toISOString().split('T')[0];
+  // 301 Permanent Redirect: /image -> /images canonical route
+  app.get('/image', (_req, res) => {
+    res.redirect(301, '/images');
+  });
 
-    const mediaUrls = Object.values(mediaRegistry)
-      .filter((m) => !m.password)
-      .map((m) => `
-  <url>
-    <loc>${baseUrl}/?view=${m.id}</loc>
-    <lastmod>${m.createdAt ? m.createdAt.split('T')[0] : dateToday}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>`)
-      .join('');
-
+  // Production XML Sitemap endpoint (Strictly real indexable routes only)
+  app.get('/sitemap.xml', (_req, res) => {
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>${baseUrl}/</loc>
-    <lastmod>${dateToday}</lastmod>
+    <loc>${PRODUCTION_ORIGIN}/</loc>
+    <lastmod>2026-10-07</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
-  </url>${mediaUrls}
+  </url>
+  <url>
+    <loc>${PRODUCTION_ORIGIN}/audio</loc>
+    <lastmod>2026-10-07</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>${PRODUCTION_ORIGIN}/video</loc>
+    <lastmod>2026-10-07</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>${PRODUCTION_ORIGIN}/images</loc>
+    <lastmod>2026-10-07</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
 </urlset>`;
-
     res.send(xml);
   });
 
-  app.get('/robots.txt', (req, res) => {
-    res.setHeader('Content-Type', 'text/plain');
-    const baseUrl = getBaseUrl(req);
-    res.send(`User-agent: *\nAllow: /\nAllow: /media/\nAllow: /api/media/\nSitemap: ${baseUrl}/sitemap.xml\n`);
+  // Production Robots.txt endpoint
+  app.get('/robots.txt', (_req, res) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(`User-agent: *\nAllow: /\nAllow: /audio\nAllow: /video\nAllow: /images\nDisallow: /api/\nDisallow: /*?view=*\n\nSitemap: ${PRODUCTION_ORIGIN}/sitemap.xml\n`);
   });
 
   app.post('/api/upload', (req, res) => {
@@ -528,10 +540,14 @@ async function startServer() {
     });
   });
 
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+  const distPath = path.resolve(__dirname, 'dist');
+  if (process.env.NODE_ENV === 'production' || fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get(['/', '/audio', '/video', '/images'], (_req, res) => {
+      res.sendFile(path.resolve(distPath, 'index.html'));
+    });
     app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.resolve(distPath, 'index.html'));
     });
   } else {
     const vite = await createViteServer({

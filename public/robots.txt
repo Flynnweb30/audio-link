@@ -1,6 +1,9 @@
 User-agent: *
 Allow: /
-Allow: /media/
-Allow: /api/media/
+Allow: /audio
+Allow: /video
+Allow: /images
+Disallow: /api/
+Disallow: /*?view=*
 
-Sitemap: https://audiolink-media-service.onrender.com/sitemap.xml
+Sitemap: https://audiolink-oskn.onrender.com/sitemap.xml

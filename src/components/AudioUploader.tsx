@@ -32,6 +32,8 @@ interface AudioUploaderProps {
   guestRemaining: number;
   onSignIn: () => void;
   isSigningIn?: boolean;
+  currentFilter?: 'all' | 'audio' | 'video' | 'image';
+  onFilterChange?: (filter: 'all' | 'audio' | 'video' | 'image') => void;
 }
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -52,13 +54,24 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
   guestRemaining,
   onSignIn,
   isSigningIn = false,
+  currentFilter,
+  onFilterChange,
 }) => {
   const isLocalEnvironment = typeof window !== 'undefined' && 
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   const maxBatchFiles = isLocalEnvironment ? LOCAL_MAX_BATCH : PROD_MAX_BATCH;
 
-  const [activeMediaFilter, setActiveMediaFilter] = useState<'all' | 'audio' | 'video' | 'image'>('all');
+  const [internalFilter, setInternalFilter] = useState<'all' | 'audio' | 'video' | 'image'>('all');
+  const activeMediaFilter = currentFilter !== undefined ? currentFilter : internalFilter;
+
+  const handleFilterSelection = (filter: 'all' | 'audio' | 'video' | 'image') => {
+    setInternalFilter(filter);
+    if (onFilterChange) {
+      onFilterChange(filter);
+    }
+  };
+
   const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('single');
   const [isDragging, setIsDragging] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -621,7 +634,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-900/60 rounded-xl border border-slate-700/60">
           <button
             type="button"
-            onClick={() => setActiveMediaFilter('all')}
+            onClick={() => handleFilterSelection('all')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               activeMediaFilter === 'all'
                 ? 'bg-slate-800 text-white shadow-xs'
@@ -633,7 +646,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveMediaFilter('audio')}
+            onClick={() => handleFilterSelection('audio')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               activeMediaFilter === 'audio'
                 ? 'bg-slate-800 text-white shadow-xs'
@@ -645,7 +658,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveMediaFilter('video')}
+            onClick={() => handleFilterSelection('video')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               activeMediaFilter === 'video'
                 ? 'bg-slate-800 text-white shadow-xs'
@@ -657,7 +670,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveMediaFilter('image')}
+            onClick={() => handleFilterSelection('image')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               activeMediaFilter === 'image'
                 ? 'bg-slate-800 text-white shadow-xs'

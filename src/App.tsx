@@ -7,8 +7,7 @@ import {
   Crown, 
   LogIn, 
   LogOut, 
-  Loader2, 
-  Music 
+  Loader2 
 } from 'lucide-react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -22,6 +21,58 @@ import { QrCodeModal } from './components/QrCodeModal';
 import { ProPricingModal } from './components/ProPricingModal';
 import { ApiAccessModal } from './components/ApiAccessModal';
 import { SharePlayerView } from './components/SharePlayerView';
+
+export type TabRoute = 'all' | 'audio' | 'video' | 'image';
+
+const ROUTE_CONFIG: Record<TabRoute, {
+  path: string;
+  title: string;
+  description: string;
+  badge: string;
+  heroHeading: string;
+  heroSubheading: string;
+}> = {
+  all: {
+    path: '/',
+    title: 'AudioLink v2 - Turn Audio, Video & Images into Direct Streamable URLs',
+    description: 'Convert any audio, video, or image file into permanent, direct streamable HTTP URLs with 206 Byte-Range streaming. Fast, free, and reliable.',
+    badge: 'High-Speed Direct Media CDN & Byte-Streaming',
+    heroHeading: 'Turn Any Media into a',
+    heroSubheading: 'Upload media and get permanent streamable HTTP links with 206 Byte-Range streaming. Perfect for bots, games, web apps, and embeds.',
+  },
+  audio: {
+    path: '/audio',
+    title: 'Audio Direct URLs & MP3 Streaming CDN | AudioLink',
+    description: 'Turn MP3, WAV, M4A, OGG, and FLAC files into permanent, direct streamable audio links with instant byte-range playback for bots and web apps.',
+    badge: 'Direct Audio CDN & Byte-Streaming',
+    heroHeading: 'Turn Any Audio into a',
+    heroSubheading: 'Upload MP3, WAV, M4A, OGG, and FLAC to generate direct streamable URLs with HTTP 206 Byte-Range streaming.',
+  },
+  video: {
+    path: '/video',
+    title: 'Video Direct URLs & MP4 Streaming CDN | AudioLink',
+    description: 'Convert MP4, WEBM, and MOV video files into permanent direct streamable video URLs with HTTP 206 chunked playback support.',
+    badge: 'Direct Video CDN & Chunked Streaming',
+    heroHeading: 'Turn Any Video into a',
+    heroSubheading: 'Upload MP4, WEBM, and MOV video files to get high-speed permanent direct links for HTML5 players and embeds.',
+  },
+  image: {
+    path: '/images',
+    title: 'Image Direct URLs & Media Hosting CDN | AudioLink',
+    description: 'Upload PNG, JPG, WEBP, and GIF images to generate permanent, fast-loading direct CDN links for embedding anywhere.',
+    badge: 'Direct Image CDN & Instant Hosting',
+    heroHeading: 'Turn Any Image into a',
+    heroSubheading: 'Upload PNG, JPG, WEBP, and GIF images to get permanent direct CDN image URLs for markdown, blogs, and websites.',
+  },
+};
+
+function getRouteFromPathname(pathname: string): TabRoute {
+  const normalized = pathname.toLowerCase().replace(/\/$/, '') || '/';
+  if (normalized === '/audio') return 'audio';
+  if (normalized === '/video') return 'video';
+  if (normalized === '/images' || normalized === '/image') return 'image';
+  return 'all';
+}
 
 const SAMPLE_MEDIA_LIST: MediaItem[] = [
   {
@@ -55,6 +106,13 @@ export const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
 
+  const [currentTab, setCurrentTab] = useState<TabRoute>(() => {
+    if (typeof window !== 'undefined') {
+      return getRouteFromPathname(window.location.pathname);
+    }
+    return 'all';
+  });
+
   const [items, setItems] = useState<MediaItem[]>([]);
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null);
   const [standaloneViewId, setStandaloneViewId] = useState<string | null>(null);
@@ -71,13 +129,75 @@ export const App: React.FC = () => {
 
   const isFirestoreActiveRef = useRef<boolean>(true);
 
+  // Synchronize route and SEO metadata
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const viewId = params.get('view');
-    if (viewId) {
-      setStandaloneViewId(viewId);
+    if (typeof window === 'undefined') return;
+
+    if (window.location.pathname.toLowerCase() === '/image') {
+      window.history.replaceState({}, '', '/images');
     }
+
+    const cfg = ROUTE_CONFIG[currentTab];
+    document.title = cfg.title;
+
+    const canonicalPath = cfg.path === '/' ? '' : cfg.path;
+    const canonicalUrl = `https://audiolink-oskn.onrender.com${canonicalPath}`;
+
+    let canonicalTag = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    if (!canonicalTag) {
+      canonicalTag = document.createElement('link');
+      canonicalTag.rel = 'canonical';
+      document.head.appendChild(canonicalTag);
+    }
+    canonicalTag.href = canonicalUrl;
+
+    const descMeta = document.querySelector('meta[name="description"]');
+    if (descMeta) descMeta.setAttribute('content', cfg.description);
+
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) ogTitle.setAttribute('content', cfg.title);
+
+    const ogDesc = document.querySelector('meta[property="og:description"]');
+    if (ogDesc) ogDesc.setAttribute('content', cfg.description);
+
+    const ogUrl = document.querySelector('meta[property="og:url"]');
+    if (ogUrl) ogUrl.setAttribute('content', canonicalUrl);
+
+    const twTitle = document.querySelector('meta[name="twitter:title"]');
+    if (twTitle) twTitle.setAttribute('content', cfg.title);
+
+    const twDesc = document.querySelector('meta[name="twitter:description"]');
+    if (twDesc) twDesc.setAttribute('content', cfg.description);
+
+    const twUrl = document.querySelector('meta[name="twitter:url"]');
+    if (twUrl) twUrl.setAttribute('content', canonicalUrl);
+  }, [currentTab]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const viewId = params.get('view');
+      setStandaloneViewId(viewId);
+      setCurrentTab(getRouteFromPathname(window.location.pathname));
+    };
+
+    const initialParams = new URLSearchParams(window.location.search);
+    const initialView = initialParams.get('view');
+    if (initialView) {
+      setStandaloneViewId(initialView);
+    }
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  const handleTabChange = (newTab: TabRoute) => {
+    setCurrentTab(newTab);
+    const targetPath = ROUTE_CONFIG[newTab].path;
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -265,13 +385,14 @@ export const App: React.FC = () => {
   };
 
   const guestRemaining = Math.max(0, 30 - guestCount);
+  const routeConfig = ROUTE_CONFIG[currentTab];
 
   if (standaloneViewId) {
     return (
       <SharePlayerView
         mediaId={standaloneViewId}
         onBackToHome={() => {
-          window.history.pushState({}, '', window.location.pathname);
+          window.history.pushState({}, '', ROUTE_CONFIG[currentTab].path);
           setStandaloneViewId(null);
         }}
       />
@@ -280,10 +401,16 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Top Navigation */}
+      {/* Top Navigation Bar */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveItem(null)}>
+          <div 
+            className="flex items-center gap-3 cursor-pointer" 
+            onClick={() => {
+              setActiveItem(null);
+              handleTabChange('all');
+            }}
+          >
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-md shadow-emerald-500/20">
               <Radio className="w-5 h-5" />
             </div>
@@ -368,17 +495,17 @@ export const App: React.FC = () => {
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>High-Speed Direct Media CDN & Byte-Streaming</span>
+            <span>{routeConfig.badge}</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-            Turn Any Audio & Video into a <span className="text-emerald-400">Direct URL</span>
+            {routeConfig.heroHeading} <span className="text-emerald-400">Direct URL</span>
           </h1>
           <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto">
-            Upload media and get permanent streamable HTTP links with 206 Byte-Range streaming. Perfect for bots, games, web apps, and embeds.
+            {routeConfig.heroSubheading}
           </p>
         </div>
 
-        {/* Uploader Card */}
+        {/* Media Uploader Card */}
         <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
           <AudioUploader
             onUploadSuccess={handleUploadSuccess}
@@ -388,6 +515,8 @@ export const App: React.FC = () => {
             guestRemaining={guestRemaining}
             onSignIn={handleSignIn}
             isSigningIn={isSigningIn}
+            currentFilter={currentTab}
+            onFilterChange={handleTabChange}
           />
         </div>
 
