@@ -8,7 +8,7 @@ import {
   LogIn, 
   LogOut, 
   Loader2, 
-  Video as VideoIcon, 
+  Video, 
   UploadCloud 
 } from 'lucide-react';
 import { User, onAuthStateChanged } from 'firebase/auth';
@@ -29,7 +29,7 @@ import { QrCodeModal } from './components/QrCodeModal';
 import { ProPricingModal } from './components/ProPricingModal';
 import { ApiAccessModal } from './components/ApiAccessModal';
 import { SharePlayerView } from './components/SharePlayerView';
-import { VideoEditorStudio } from './components/VideoEditor/VideoEditorStudio';
+import { VideoStudioEditor } from './components/VideoStudioEditor';
 
 export type TabRoute = 'all' | 'audio' | 'video' | 'image';
 
@@ -59,11 +59,11 @@ const ROUTE_CONFIG: Record<TabRoute, {
   },
   video: {
     path: '/video',
-    title: 'Video Editor & Direct Streamable URLs | AudioLink Studio',
-    description: 'Professional browser-based video editor with multi-track timeline, canvas preview, split, audio cleaning, and instant direct streamable URL exports.',
-    badge: 'Video Editor Studio & High-Speed CDN',
-    heroHeading: 'Edit & Turn Any Video into a',
-    heroSubheading: 'Edit, split, add text, clean audio, and export directly to permanent streamable HTTP URLs with chunked playback.',
+    title: 'Video Studio Editor, Recorder & MP4 Streaming CDN | AudioLink',
+    description: 'Edit, record, and convert video files into permanent direct streamable video URLs with timeline editing and chunked playback.',
+    badge: 'Video Studio Editor, Recorder & Streaming CDN',
+    heroHeading: 'Edit, Record & Turn Video into a',
+    heroSubheading: 'Full timeline video editor, webcam/screen recorder, and permanent direct streamable CDN links.',
   },
   image: {
     path: '/images',
@@ -126,8 +126,8 @@ export const App: React.FC = () => {
     return 'all';
   });
 
-  // Video Tab mode: 'editor' (Studio workspace matching screenshot) vs 'quick' (simple direct uploader)
-  const [videoMode, setVideoMode] = useState<'editor' | 'quick'>('editor');
+  // Video Tab view mode: 'studio' (Video Editor/Recorder) vs 'converter' (Direct Link)
+  const [videoStudioMode, setVideoStudioMode] = useState<'studio' | 'converter'>('studio');
 
   const [items, setItems] = useState<MediaItem[]>([]);
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null);
@@ -237,9 +237,6 @@ export const App: React.FC = () => {
     }
   };
 
-  /**
-   * Central History Loader: Fetches server records and bi-directionally syncs with Firebase
-   */
   const loadAndReconcileHistory = useCallback(async (activeUser: User | null) => {
     const effectiveUserId = activeUser ? activeUser.uid : getGuestId();
 
@@ -261,7 +258,6 @@ export const App: React.FC = () => {
 
       setItems(serverItems);
 
-      // Connect real-time Firebase subscription for the user
       if (activeUnsubscribeRef.current) {
         activeUnsubscribeRef.current();
         activeUnsubscribeRef.current = null;
@@ -286,7 +282,7 @@ export const App: React.FC = () => {
         syncBatchToFirebase(serverItems, activeUser);
       }
     } catch (err) {
-      console.warn('History notice:', err);
+      console.warn('History sync notice:', err);
     }
   }, [getGuestId]);
 
@@ -346,7 +342,6 @@ export const App: React.FC = () => {
 
     setActiveItem(safeItem);
     setItems((prev) => [safeItem, ...prev.filter((i) => i.id !== safeItem.id)]);
-
     await syncRecordToFirebase(safeItem, user);
 
     if (!user) {
@@ -441,7 +436,7 @@ export const App: React.FC = () => {
               <span className="font-extrabold text-lg text-white tracking-tight flex items-center gap-1.5">
                 AudioLink <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">v2</span>
               </span>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Audio, Video Studio & Direct Media Streaming</p>
+              <p className="text-[11px] text-slate-400 hidden sm:block">Audio, Video & Direct Media Streaming</p>
             </div>
           </div>
 
@@ -514,94 +509,97 @@ export const App: React.FC = () => {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 sm:py-8 flex flex-col gap-8">
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{routeConfig.badge}</span>
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-            {routeConfig.heroHeading} <span className="text-emerald-400">Direct URL</span>
-          </h1>
-          <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto">
-            {routeConfig.heroSubheading}
-          </p>
-        </div>
-
-        {/* Dynamic Studio Tab Workflow: When in 'video' tab, presents Video Editor Studio workspace */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 sm:py-8 flex flex-col gap-6">
+        {/* If on /video tab: Provide quick mode toggle between Studio Editor & Direct Link Converter */}
         {currentTab === 'video' ? (
           <div className="space-y-4">
-            <div className="flex items-center justify-between pb-2">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setVideoMode('editor')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                    videoMode === 'editor'
-                      ? 'bg-emerald-500 text-slate-950 shadow-md'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <VideoIcon className="w-3.5 h-3.5" />
-                  <span>Video Studio Editor</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setVideoMode('quick')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                    videoMode === 'quick'
-                      ? 'bg-emerald-500 text-slate-950 shadow-md'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <UploadCloud className="w-3.5 h-3.5" />
-                  <span>Quick Video Link</span>
-                </button>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800/80 p-2 rounded-2xl border border-slate-700">
+              <div className="flex items-center gap-2 px-2">
+                <Video className="w-5 h-5 text-emerald-400" />
+                <span className="font-bold text-sm text-white">Video Workspace:</span>
               </div>
 
-              <span className="text-xs text-slate-400 hidden sm:inline">
-                {user ? 'Unlimited Studio Exports' : `Guest: ${guestQuota.remaining}/5 left today`}
-              </span>
+              <div className="flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-700/80 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setVideoStudioMode('studio')}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    videoStudioMode === 'studio'
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm font-bold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Video Studio Editor & Recorder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVideoStudioMode('converter')}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    videoStudioMode === 'converter'
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm font-bold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Direct URL Converter
+                </button>
+              </div>
             </div>
 
-            {videoMode === 'editor' ? (
-              <VideoEditorStudio
+            {videoStudioMode === 'studio' ? (
+              <VideoStudioEditor
                 user={user}
-                existingVideos={items.filter((i) => i.mediaType === 'video')}
                 onExportSuccess={handleUploadSuccess}
-                onOpenLibrary={() => setIsHistoryOpen(true)}
+                onUpgradePro={() => setIsProOpen(true)}
               />
             ) : (
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
-                <AudioUploader
-                  onUploadSuccess={handleUploadSuccess}
-                  onBatchUploadSuccess={handleBatchUploadSuccess}
-                  onSelectSample={handleSelectSample}
-                  user={user}
-                  guestRemaining={guestQuota.remaining}
-                  onSignIn={handleSignIn}
-                  isSigningIn={isSigningIn}
-                  currentFilter={currentTab}
-                  onFilterChange={handleTabChange}
-                />
+              <div className="space-y-6">
+                <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
+                  <AudioUploader
+                    onUploadSuccess={handleUploadSuccess}
+                    onBatchUploadSuccess={handleBatchUploadSuccess}
+                    onSelectSample={handleSelectSample}
+                    user={user}
+                    guestRemaining={guestQuota.remaining}
+                    onSignIn={handleSignIn}
+                    isSigningIn={isSigningIn}
+                    currentFilter={currentTab}
+                    onFilterChange={handleTabChange}
+                  />
+                </div>
               </div>
             )}
           </div>
         ) : (
-          /* Standard Multi-Media Uploader for All Media, Audio, and Image */
-          <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
-            <AudioUploader
-              onUploadSuccess={handleUploadSuccess}
-              onBatchUploadSuccess={handleBatchUploadSuccess}
-              onSelectSample={handleSelectSample}
-              user={user}
-              guestRemaining={guestQuota.remaining}
-              onSignIn={handleSignIn}
-              isSigningIn={isSigningIn}
-              currentFilter={currentTab}
-              onFilterChange={handleTabChange}
-            />
-          </div>
+          /* Standard Workspace for All Media, Audio, and Image tabs */
+          <>
+            <div className="text-center space-y-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{routeConfig.badge}</span>
+              </div>
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+                {routeConfig.heroHeading} <span className="text-emerald-400">Direct URL</span>
+              </h1>
+              <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto">
+                {routeConfig.heroSubheading}
+              </p>
+            </div>
+
+            {/* Media Uploader Card */}
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
+              <AudioUploader
+                onUploadSuccess={handleUploadSuccess}
+                onBatchUploadSuccess={handleBatchUploadSuccess}
+                onSelectSample={handleSelectSample}
+                user={user}
+                guestRemaining={guestQuota.remaining}
+                onSignIn={handleSignIn}
+                isSigningIn={isSigningIn}
+                currentFilter={currentTab}
+                onFilterChange={handleTabChange}
+              />
+            </div>
+          </>
         )}
 
         {/* Active Upload Result / Preview Widget */}
@@ -615,7 +613,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Centralized Recent Conversion History (Matching Image 1) */}
+        {/* Centralized Recent Conversion History */}
         <RecentUploadsGrid
           items={items}
           activeFilter={currentTab}
@@ -628,7 +626,7 @@ export const App: React.FC = () => {
       {/* Footer */}
       <footer className="border-t border-slate-800 bg-slate-900/60 py-6 text-center text-xs text-slate-500 mt-auto">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>© {new Date().getFullYear()} AudioLink v2. Centralized Media & Video Studio.</p>
+          <p>© {new Date().getFullYear()} AudioLink v2. Centralized Media Service.</p>
           <div className="flex items-center gap-4">
             <button onClick={() => setIsApiOpen(true)} className="hover:text-slate-300 cursor-pointer">API Documentation</button>
             <button onClick={() => setIsProOpen(true)} className="hover:text-slate-300 cursor-pointer">Pro Features</button>
@@ -637,7 +635,7 @@ export const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* View All History Modal (Matching Images 2 & 3) */}
+      {/* View All History Modal */}
       <FullHistoryModal
         items={items}
         isOpen={isHistoryOpen}

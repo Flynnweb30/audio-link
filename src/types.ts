@@ -19,7 +19,7 @@ export interface MediaItem {
   directAudioUrl?: string;
   playerUrl?: string;
   customSlug?: string;
-  expiresAt?: string; // undefined for permanent logged-in users, ISO string for 48h guests
+  expiresAt?: string;
   password?: string;
   hasPassword?: boolean;
   views?: number;
@@ -62,29 +62,25 @@ export interface BatchFileItem {
   result?: MediaItem;
 }
 
-// Video Editor Studio Types
-export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5';
+export type AspectRatio = '16:9' | '9:16' | '1:1';
+
+export interface VideoClipSegment {
+  id: string;
+  name: string;
+  src: string;
+  duration: number;
+  startTrim: number;
+  endTrim: number;
+  volume: number;
+  muted: boolean;
+}
 
 export interface TextOverlay {
   id: string;
   text: string;
   startTime: number;
   endTime: number;
-  x: number; // percentage 0-100
-  y: number; // percentage 0-100
-  fontSize: number;
   color: string;
-  backgroundColor?: string;
-}
-
-export interface VideoClip {
-  id: string;
-  name: string;
-  src: string;
-  duration: number;
-  startTime: number;
-  trimStart: number;
-  trimEnd: number;
-  volume: number;
-  muted: boolean;
+  fontSize: number;
+  positionY: number; // percentage from top (0-100)
 }
