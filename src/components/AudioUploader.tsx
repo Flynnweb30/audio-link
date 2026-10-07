@@ -23,7 +23,6 @@ import {
 import { User } from 'firebase/auth';
 import { MediaItem, UploadProgress, BatchFileItem } from '../types';
 import { formatFileSize, copyToClipboard } from '../utils/formatters';
-import { uploadBinaryToFirebaseStorage } from '../firebase/syncService';
 
 interface AudioUploaderProps {
   onUploadSuccess: (item: MediaItem) => void;
@@ -209,7 +208,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     setValidationError(null);
   };
 
-  const startSingleUpload = async (file: File) => {
+  const startSingleUpload = (file: File) => {
     setUploadProgress({
       state: 'uploading',
       percentage: 10,
@@ -217,18 +216,10 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       uploadedMedia: null,
     });
 
-    // Cloud persistence mirroring
-    let cloudDownloadUrl: string | null = null;
-    try {
-      cloudDownloadUrl = await uploadBinaryToFirebaseStorage(file, `${Date.now()}_${file.name}`);
-    } catch {}
-
+    // Upload directly to server endpoint (Same-Origin: completely avoids GCS CORS preflight failures)
     const formData = new FormData();
     formData.append('file', file);
     formData.append('folder', 'public');
-    if (cloudDownloadUrl) {
-      formData.append('storageUrl', cloudDownloadUrl);
-    }
 
     const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_guest_id') || 'guest');
     formData.append('userId', effectiveUserId);
@@ -286,7 +277,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
         const safeItem: MediaItem = {
           ...mediaItem,
-          storageUrl: cloudDownloadUrl || mediaItem.storageUrl,
           userId: user ? user.uid : effectiveUserId,
           userEmail: user?.email || undefined,
           isGuest: !user,
@@ -353,12 +343,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_guest_id') || 'guest');
     const successfulItems: MediaItem[] = [];
 
-    const uploadSingleItem = async (item: BatchFileItem): Promise<MediaItem | null> => {
-      let cloudUrl: string | null = null;
-      try {
-        cloudUrl = await uploadBinaryToFirebaseStorage(item.file, `${Date.now()}_${item.name}`);
-      } catch {}
-
+    const uploadSingleItem = (item: BatchFileItem): Promise<MediaItem | null> => {
       return new Promise((resolve) => {
         try {
           setBatchQueue((prev) =>
@@ -369,7 +354,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           formData.append('file', item.file);
           formData.append('folder', 'public');
           formData.append('userId', effectiveUserId);
-          if (cloudUrl) formData.append('storageUrl', cloudUrl);
           if (user?.email) formData.append('userEmail', user.email);
 
           const xhr = new XMLHttpRequest();
@@ -417,7 +401,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                 if (mediaItem) {
                   const safeMedia: MediaItem = {
                     ...mediaItem,
-                    storageUrl: cloudUrl || mediaItem.storageUrl,
                     userId: user ? user.uid : effectiveUserId,
                     userEmail: user?.email || undefined,
                     isGuest: !user,

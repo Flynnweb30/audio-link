@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://audiolink-oskn.onrender.com", "http://localhost:3000", "http://localhost:5173"],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Access-Control-Allow-Origin", "Range", "x-goog-resumable"],
+    "maxAgeSeconds": 3600
+  }
+]

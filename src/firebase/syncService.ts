@@ -10,10 +10,11 @@ import {
   where, 
   Unsubscribe 
 } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { db, storage } from './config';
+import { db } from './config';
 import { MediaItem } from '../types';
+
+let isFirestoreAccessible = true;
 
 export function sanitizeForFirestore(item: MediaItem): Record<string, any> {
   const clean: Record<string, any> = {};
@@ -34,25 +35,11 @@ export function sanitizeForFirestore(item: MediaItem): Record<string, any> {
 }
 
 /**
- * Uploads media file to Firebase Storage so it survives Render ephemeral redeployments
- */
-export async function uploadBinaryToFirebaseStorage(file: File | Blob, filename: string): Promise<string | null> {
-  if (!storage) return null;
-  try {
-    const storageRef = ref(storage, `media/${filename}`);
-    const snapshot = await uploadBytesResumable(storageRef, file);
-    const downloadUrl = await getDownloadURL(snapshot.ref);
-    return downloadUrl;
-  } catch (err: any) {
-    return null;
-  }
-}
-
-/**
- * Persists record to Firestore
+ * Resilient Firestore sync: if an ad-blocker blocks Firestore, mutes gracefully
+ * and relies on the server backend without throwing console errors.
  */
 export async function syncRecordToFirebase(item: MediaItem, user?: User | null): Promise<boolean> {
-  if (!db) return false;
+  if (!db || !isFirestoreAccessible) return false;
   try {
     const payload: MediaItem = {
       ...item,
@@ -68,17 +55,25 @@ export async function syncRecordToFirebase(item: MediaItem, user?: User | null):
     await setDoc(doc(db, 'media', item.id), cleanData, { merge: true });
     return true;
   } catch (err: any) {
+    if (
+      err?.code === 'permission-denied' ||
+      err?.code === 'unavailable' ||
+      err?.message?.includes('ERR_BLOCKED_BY_CLIENT') ||
+      err?.message?.includes('Failed to load resource')
+    ) {
+      isFirestoreAccessible = false;
+    }
     return false;
   }
 }
 
 export async function syncBatchToFirebase(items: MediaItem[], user?: User | null): Promise<void> {
-  if (!db || items.length === 0) return;
+  if (!db || !isFirestoreAccessible || items.length === 0) return;
   await Promise.all(items.map((item) => syncRecordToFirebase(item, user)));
 }
 
 export async function deleteRecordFromFirebase(id: string): Promise<boolean> {
-  if (!db) return false;
+  if (!db || !isFirestoreAccessible) return false;
   try {
     await deleteDoc(doc(db, 'media', id));
     return true;
@@ -88,10 +83,10 @@ export async function deleteRecordFromFirebase(id: string): Promise<boolean> {
 }
 
 /**
- * Self-healing recovery: retrieves record from Firestore if local server disk was reset
+ * Fallback self-healing: retrieves record from Firestore if available
  */
 export async function fetchRecordFromFirestore(id: string): Promise<MediaItem | null> {
-  if (!db) return null;
+  if (!db || !isFirestoreAccessible) return null;
   try {
     const docRef = doc(db, 'media', id);
     const snap = await getDoc(docRef);
@@ -114,7 +109,7 @@ export async function fetchRecordFromFirestore(id: string): Promise<MediaItem | 
     }
 
     return null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -124,7 +119,7 @@ export function subscribeToUserHistory(
   onUpdate: (items: MediaItem[]) => void,
   onError?: (err: any) => void
 ): Unsubscribe | null {
-  if (!db || !userId) return null;
+  if (!db || !isFirestoreAccessible || !userId) return null;
 
   try {
     const q = query(collection(db, 'media'), where('userId', '==', userId));
@@ -146,10 +141,18 @@ export function subscribeToUserHistory(
         onUpdate(remoteItems);
       },
       (error) => {
+        if (
+          error?.code === 'permission-denied' ||
+          error?.code === 'unavailable' ||
+          error?.message?.includes('ERR_BLOCKED_BY_CLIENT')
+        ) {
+          isFirestoreAccessible = false;
+        }
         if (onError) onError(error);
       }
     );
   } catch (err) {
+    isFirestoreAccessible = false;
     if (onError) onError(err);
     return null;
   }
