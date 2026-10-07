@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Sparkles, 
   Video, 
+  Clapperboard, 
   Music, 
   Image as ImageIcon, 
   Captions, 
@@ -17,23 +18,14 @@ import {
   SkipForward, 
   ZoomIn, 
   ZoomOut, 
-  Maximize2, 
   Undo2, 
   Redo2, 
-  Settings, 
   Check, 
   Copy, 
-  Trash2, 
-  Volume2, 
-  VolumeX, 
   X, 
   Loader2, 
-  Radio, 
-  Layers, 
   Film, 
-  Sliders, 
   Square, 
-  Share2, 
   ExternalLink 
 } from 'lucide-react';
 import { User } from 'firebase/auth';
@@ -47,7 +39,7 @@ interface VideoStudioProps {
   onSignIn: () => void;
 }
 
-type StudioToolTab = 'ai' | 'video' | 'audio' | 'image' | 'subtitles' | 'text' | 'elements';
+type StudioToolTab = 'ai' | 'video' | 'studio' | 'audio' | 'image' | 'subtitles' | 'text' | 'elements';
 
 const STOCK_VIDEOS = [
   {
@@ -89,21 +81,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   onExportSuccess,
   onSignIn,
 }) => {
-  const [activeTool, setActiveTool] = useState<StudioToolTab>('video');
+  const [activeTool, setActiveTool] = useState<StudioToolTab>('studio');
   const [projectName, setProjectName] = useState<string>('Aldis Clean');
   const [aspectRatio, setAspectRatio] = useState<AspectRatioType>('16:9');
   const [backgroundColor, setBackgroundColor] = useState<string>('#000000');
   const [isCleanAudio, setIsCleanAudio] = useState<boolean>(true);
 
-  // Playback & Timeline State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [totalDuration, setTotalDuration] = useState<number>(42);
-  const [volume, setVolume] = useState<number>(1);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
 
-  // Clips & Elements
   const [activeClip, setActiveClip] = useState<VideoClip>({
     id: 'clip_primary',
     name: 'Aldis Clean.opus',
@@ -120,10 +108,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([
     {
       id: 'txt_1',
-      text: 'AudioLink Video Studio',
+      text: 'Video Studio Edit & Record',
       x: 50,
       y: 80,
-      fontSize: 24,
+      fontSize: 22,
       color: '#ffffff',
       backgroundColor: 'rgba(0,0,0,0.6)',
       startTime: 0,
@@ -131,7 +119,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     }
   ]);
 
-  // Recording State
   const [isRecordModalOpen, setIsRecordModalOpen] = useState<boolean>(false);
   const [recordMode, setRecordMode] = useState<'camera' | 'screen' | 'audio'>('camera');
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -142,24 +129,20 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const recordVideoPreviewRef = useRef<HTMLVideoElement | null>(null);
   const liveStreamRef = useRef<MediaStream | null>(null);
 
-  // Export State
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportProgress, setExportProgress] = useState<number>(0);
   const [exportedItem, setExportedItem] = useState<MediaItem | null>(null);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  // Canvas & Audio References
   const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const timelineTrackRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Undo/Redo Stacks
   const [historyStack, setHistoryStack] = useState<any[]>([]);
   const [redoStack, setRedoStack] = useState<any[]>([]);
 
-  // Synchronize playback timeline
   useEffect(() => {
     let animId: number;
     if (isPlaying) {
@@ -227,7 +210,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     handleSeek(ratio * totalDuration);
   };
 
-  const handleSplitClip = () => {
+  const handleSplitClip = useCallback(() => {
     if (currentTime <= activeClip.startTime || currentTime >= activeClip.endTime) return;
     setHistoryStack((prev) => [...prev, { ...activeClip }]);
     setRedoStack([]);
@@ -235,7 +218,22 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       ...prev,
       endTime: currentTime,
     }));
-  };
+  }, [currentTime, activeClip]);
+
+  // Keyboard shortcut: S = Split
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') return;
+
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        handleSplitClip();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSplitClip]);
 
   const handleUndo = () => {
     if (historyStack.length === 0) return;
@@ -253,7 +251,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     setRedoStack((prev) => prev.slice(0, -1));
   };
 
-  // Upload custom video/audio file into editor
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
@@ -278,7 +275,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     setIsPlaying(false);
   };
 
-  // In-App Video & Audio Recording Engine
   const startRecording = async () => {
     try {
       recordedChunksRef.current = [];
@@ -360,7 +356,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     }
   };
 
-  // Video Export & Seamless Workflow Integration
   const handleExportProject = async () => {
     if (!user && guestRemaining <= 0) {
       setExportError('Daily guest conversion quota reached (5/5). Sign in with Google for unlimited exports.');
@@ -368,23 +363,20 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     }
 
     setIsExporting(true);
-    setExportProgress(10);
+    setExportProgress(15);
     setExportError(null);
 
     try {
-      // Simulate/perform video canvas composition
-      for (let p = 15; p <= 85; p += 15) {
-        await new Promise((r) => setTimeout(r, 120));
+      for (let p = 25; p <= 85; p += 15) {
+        await new Promise((r) => setTimeout(r, 110));
         setExportProgress(p);
       }
 
-      // Prepare exported video file
       let videoBlob: Blob;
       try {
         const response = await fetch(activeClip.url);
         videoBlob = await response.blob();
       } catch {
-        // Fallback synthetic composition
         videoBlob = new Blob(['AudioLink Video Studio Export'], { type: 'video/mp4' });
       }
 
@@ -396,7 +388,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
       setExportProgress(90);
 
-      // Upload into existing centralized backend & Firebase storage system
       const formData = new FormData();
       formData.append('file', exportFile);
       formData.append('folder', 'public');
@@ -429,7 +420,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       setExportedItem(mediaItem);
       setIsExporting(false);
 
-      // Trigger standard centralized workflow callbacks (Recent History + Full Library)
       onExportSuccess(mediaItem);
     } catch (err: any) {
       setIsExporting(false);
@@ -448,7 +438,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
   return (
     <div className="w-full bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-slate-100 min-h-[720px]">
-      {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -457,7 +446,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         className="hidden"
       />
 
-      {/* Studio Top Control Bar (matching reference header) */}
+      {/* Top Bar with Project Name, Undo/Redo & Done Button */}
       <div className="h-14 border-b border-slate-800 bg-slate-950/70 px-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <input
@@ -490,7 +479,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           </div>
         </div>
 
-        {/* Right actions: Upgrade + Done / Export button (matching green accent) */}
         <div className="flex items-center gap-2.5">
           {!user && (
             <button
@@ -523,9 +511,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
       </div>
 
-      {/* Main Studio Body: Left Nav Toolstrip + Secondary Content Panel + Center Canvas */}
+      {/* Main Studio Body: AI Tools -> Video -> Video Studio -> Audio -> Image -> Subtitles -> Text -> Elements */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Leftmost Toolstrip (AI Tools -> Video -> Audio -> Image -> Subtitles -> Text -> Elements) */}
         <div className="w-16 border-r border-slate-800 bg-slate-950 flex flex-row md:flex-col items-center py-3 gap-1 shrink-0 select-none overflow-x-auto">
           <button
             type="button"
@@ -547,6 +534,18 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           >
             <Video className="w-4 h-4" />
             <span className="text-[9px]">Video</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTool('studio')}
+            className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+              activeTool === 'studio' ? 'bg-slate-800 text-rose-400 font-bold' : 'text-slate-400 hover:text-white'
+            }`}
+            title="Video Studio Editor & Recorder"
+          >
+            <Clapperboard className="w-4 h-4" />
+            <span className="text-[9px]">Studio</span>
           </button>
 
           <button
@@ -605,14 +604,13 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           </button>
         </div>
 
-        {/* Secondary Left Content Panel (matching reference: Upload, Generate, Record, Stock Clips) */}
+        {/* Secondary Panel: Upload, Generate, Record, Stock Clips */}
         <div className="w-full md:w-72 border-r border-slate-800 bg-slate-900/90 p-4 flex flex-col gap-5 shrink-0 overflow-y-auto max-h-72 md:max-h-none">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-white capitalize">{activeTool} Studio</h2>
+            <h2 className="text-base font-bold text-white capitalize">{activeTool === 'studio' ? 'Video Studio' : `${activeTool} Studio`}</h2>
             <span className="text-[10px] text-slate-500 font-mono">1080p Engine</span>
           </div>
 
-          {/* Primary Action Buttons */}
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -660,7 +658,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             </div>
           </div>
 
-          {/* Talking Characters Section */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
               <span>Talking Characters</span>
@@ -696,7 +693,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             </div>
           </div>
 
-          {/* Stock Videos Section */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
               <span>Stock Videos</span>
@@ -739,9 +735,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           </div>
         </div>
 
-        {/* Center Canvas / Preview Workspace */}
+        {/* Center Canvas */}
         <div className="flex-1 flex flex-col bg-slate-950/40 p-4 sm:p-6 overflow-hidden">
-          {/* Responsive Preview Viewport */}
           <div className="flex-1 flex flex-col items-center justify-center min-h-[300px]">
             <div
               style={{ backgroundColor }}
@@ -765,7 +760,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 </div>
               )}
 
-              {/* Render dynamic text overlays on canvas */}
               {textOverlays.map((txt) => (
                 <div
                   key={txt.id}
@@ -785,7 +779,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               ))}
             </div>
 
-            {/* Canvas Control Bar (matching reference pills beneath canvas) */}
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs">
               <button
                 type="button"
@@ -826,27 +819,25 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
       </div>
 
-      {/* Timeline & Playback Controller (matching reference timeline footer) */}
+      {/* Timeline Controls & Key S = Split */}
       <div className="border-t border-slate-800 bg-slate-950 p-4 flex flex-col gap-3">
-        {/* Playback Controls & Action Tools Header */}
         <div className="flex items-center justify-between text-xs">
-          {/* Left Split Action */}
           <button
             type="button"
             onClick={handleSplitClip}
             className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-white rounded-xl border border-slate-700 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Split Clip at Playhead"
+            title="Split Clip at Playhead (Press S)"
           >
             <Scissors className="w-3.5 h-3.5" />
-            <span>Split</span>
+            <span>Split (S)</span>
           </button>
 
-          {/* Center Playback Controller */}
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => handleSeek(currentTime - 5)}
               className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
+              title="Skip Back 5s"
             >
               <SkipBack className="w-4 h-4" />
             </button>
@@ -863,6 +854,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               type="button"
               onClick={() => handleSeek(currentTime + 5)}
               className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
+              title="Skip Forward 5s"
             >
               <SkipForward className="w-4 h-4" />
             </button>
@@ -874,7 +866,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             </div>
           </div>
 
-          {/* Right Zoom & Fit Controls */}
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -902,13 +893,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           </div>
         </div>
 
-        {/* Timeline Tracks: Ruler + Draggable Needle + Waveform Clip */}
+        {/* Timeline Tracks */}
         <div 
           ref={timelineTrackRef}
           onClick={handleTimelineClick}
           className="relative bg-slate-900 border border-slate-800 rounded-2xl h-24 overflow-hidden cursor-pointer select-none flex flex-col justify-between p-2"
         >
-          {/* Time Ruler (0s, 10s, 20s, 30s...) */}
           <div className="flex justify-between text-[10px] font-mono text-slate-500 border-b border-slate-800/80 pb-1">
             <span>0s</span>
             <span>{Math.round(totalDuration * 0.25)}s</span>
@@ -917,14 +907,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             <span>{Math.round(totalDuration)}s</span>
           </div>
 
-          {/* Active Audio / Video Waveform Track (matching light-blue waveform bar in reference) */}
           <div className="h-12 w-full bg-sky-400/90 rounded-xl relative overflow-hidden flex items-center px-3 text-slate-950 font-bold text-xs shadow-inner">
             <div className="flex items-center gap-2 truncate z-10">
               <Music className="w-4 h-4 shrink-0 text-slate-900" />
               <span className="truncate">{activeClip.name}</span>
             </div>
 
-            {/* Synthetic audio wave bars */}
             <div className="absolute inset-0 flex items-center justify-around opacity-30 pointer-events-none px-2">
               {Array.from({ length: 48 }).map((_, i) => (
                 <div
@@ -936,7 +924,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             </div>
           </div>
 
-          {/* Draggable Playhead Cursor Needle */}
           <div
             style={{ left: `${Math.min(100, Math.max(0, (currentTime / (totalDuration || 1)) * 100))}%` }}
             className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-30 pointer-events-none"
@@ -946,7 +933,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
       </div>
 
-      {/* Record In-App Modal Overlay */}
+      {/* Record In-App Modal */}
       {isRecordModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 text-center space-y-4 shadow-2xl">
@@ -967,7 +954,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               </button>
             </div>
 
-            {/* Mode selection: Camera, Screen, Audio */}
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
@@ -998,7 +984,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               </button>
             </div>
 
-            {/* Live Camera Viewport */}
             <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800">
               <video ref={recordVideoPreviewRef} muted className="w-full h-full object-cover" />
             </div>
@@ -1036,7 +1021,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               <Check className="w-5 h-5 stroke-[3]" />
             </div>
             <div className="min-w-0">
-              <h4 className="text-xs font-bold text-white truncate">Video Exported & Synced Successfully!</h4>
+              <h4 className="text-xs font-bold text-white truncate">Video Exported & Synced to History!</h4>
               <p className="text-[11px] text-emerald-400 font-mono truncate">{exportedItem.directUrl}</p>
             </div>
           </div>

@@ -99,7 +99,6 @@ function pruneExpiredMedia(): void {
   for (const [id, item] of Object.entries(mediaRegistry)) {
     const itemPath = path.join(UPLOADS_DIR, item.filename);
 
-    // Remove expired guest conversions (48h retention)
     if (item.expiresAt && new Date(item.expiresAt).getTime() < now) {
       if (fs.existsSync(itemPath)) {
         try { fs.unlinkSync(itemPath); } catch {}
@@ -109,7 +108,6 @@ function pruneExpiredMedia(): void {
       continue;
     }
 
-    // Remove broken/unreadable 0-byte media
     if (!fs.existsSync(itemPath)) {
       delete mediaRegistry[id];
       modified = true;
@@ -331,6 +329,7 @@ async function startServer() {
     res.redirect(301, '/images');
   });
 
+  // Sitemap endpoint including /video-studio
   app.get('/sitemap.xml', (_req, res) => {
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -354,6 +353,12 @@ async function startServer() {
     <priority>0.9</priority>
   </url>
   <url>
+    <loc>${PRODUCTION_ORIGIN}/video-studio</loc>
+    <lastmod>2026-10-07</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
     <loc>${PRODUCTION_ORIGIN}/images</loc>
     <lastmod>2026-10-07</lastmod>
     <changefreq>weekly</changefreq>
@@ -365,10 +370,9 @@ async function startServer() {
 
   app.get('/robots.txt', (_req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(`User-agent: *\nAllow: /\nAllow: /audio\nAllow: /video\nAllow: /images\nDisallow: /api/\nDisallow: /*?view=*\n\nSitemap: ${PRODUCTION_ORIGIN}/sitemap.xml\n`);
+    res.send(`User-agent: *\nAllow: /\nAllow: /audio\nAllow: /video\nAllow: /video-studio\nAllow: /images\nDisallow: /api/\nDisallow: /*?view=*\n\nSitemap: ${PRODUCTION_ORIGIN}/sitemap.xml\n`);
   });
 
-  // Centralized Upload Endpoint with Account Identity Binding
   app.post('/api/upload', (req, res) => {
     upload.any()(req, res, (err: any) => {
       res.setHeader('Content-Type', 'application/json');
@@ -395,7 +399,6 @@ async function startServer() {
       const guestKey = `${ip}_${rawUserId || 'anon'}`;
       const today = new Date().toISOString().split('T')[0];
 
-      // Server-side guest enforcement
       if (!isLoggedUser) {
         const current = guestLimits[guestKey];
         const usedToday = current && current.date === today ? current.count : 0;
@@ -424,11 +427,10 @@ async function startServer() {
       const baseUrl = getBaseUrl(req);
       const effectiveUserId = isLoggedUser ? rawUserId : (rawUserId || `guest_${ip.replace(/[^a-zA-Z0-9]/g, '')}`);
       const folder = (req.body?.folder as string) || 'public';
-      const customSlug = (req.body?.customSlug as string) || undefined;
+      const customSlug = (req.body?.customSlug || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
       const customExpires = (req.body?.expiresAt as string) || undefined;
       const password = (req.body?.password as string) || undefined;
 
-      // Permanent retention for signed-in users, 48 hours for guests
       const expiresAt = isLoggedUser
         ? customExpires
         : new Date(Date.now() + GUEST_RETENTION_HOURS * 60 * 60 * 1000).toISOString();
@@ -453,7 +455,7 @@ async function startServer() {
           userEmail: rawUserEmail,
           isGuest: !isLoggedUser,
           folder,
-          customSlug,
+          customSlug: customSlug || undefined,
           expiresAt,
           password,
           hasPassword: !!password,
@@ -495,7 +497,6 @@ async function startServer() {
     });
   });
 
-  // Media Registry Query Endpoint
   app.get('/api/media', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     pruneExpiredMedia();
@@ -652,7 +653,8 @@ async function startServer() {
   const distPath = path.resolve(__dirname, 'dist');
   if (process.env.NODE_ENV === 'production' || fs.existsSync(distPath)) {
     app.use(express.static(distPath));
-    app.get(['/', '/audio', '/video', '/images'], (_req, res) => {
+    // Handles /, /audio, /video, /video-studio, and /images
+    app.get(['/', '/audio', '/video', '/video-studio', '/images'], (_req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });
     app.get('*', (_req, res) => {

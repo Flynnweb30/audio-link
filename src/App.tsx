@@ -8,7 +8,8 @@ import {
   LogIn, 
   LogOut, 
   Loader2, 
-  Video 
+  Video, 
+  Clapperboard 
 } from 'lucide-react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 
@@ -30,7 +31,7 @@ import { ProPricingModal } from './components/ProPricingModal';
 import { ApiAccessModal } from './components/ApiAccessModal';
 import { SharePlayerView } from './components/SharePlayerView';
 
-export type TabRoute = 'all' | 'audio' | 'video' | 'image';
+export type TabRoute = 'all' | 'audio' | 'video' | 'video-studio' | 'image';
 
 const ROUTE_CONFIG: Record<TabRoute, {
   path: string;
@@ -58,11 +59,19 @@ const ROUTE_CONFIG: Record<TabRoute, {
   },
   video: {
     path: '/video',
-    title: 'Video Edit, Record & Streaming CDN Studio | AudioLink',
-    description: 'Edit, record, trim, and convert video files into permanent direct streamable video URLs with HTTP 206 chunked playback support.',
-    badge: 'Video Edit, Record & Direct CDN Studio',
-    heroHeading: 'Record, Edit & Stream Any Video into a',
-    heroSubheading: 'Record webcam, trim clips, split audio tracks, and export directly into permanent HTTP 206 Byte-Range streaming links.',
+    title: 'Video Direct URLs & MP4 Streaming CDN | AudioLink',
+    description: 'Convert MP4, WEBM, and MOV video files into permanent direct streamable video URLs with HTTP 206 chunked playback support.',
+    badge: 'Direct Video CDN & Chunked Streaming',
+    heroHeading: 'Turn Any Video into a',
+    heroSubheading: 'Upload MP4, WEBM, and MOV video files to get high-speed permanent direct links for HTML5 players and embeds.',
+  },
+  'video-studio': {
+    path: '/video-studio',
+    title: 'Video Studio - Edit, Record & Create Streamable Media | AudioLink',
+    description: 'Dedicated VEED-style video editing workspace: Record webcam/screen, split/trim clips, clean audio, and export to direct CDN URLs.',
+    badge: 'Dedicated Video Edit & Record Studio',
+    heroHeading: 'Video Studio — Edit, Record & Export to',
+    heroSubheading: 'Professional in-browser video editor with timeline trimming, keyboard split (S), canvas aspect ratios, and instant cloud CDN export.',
   },
   image: {
     path: '/images',
@@ -77,6 +86,7 @@ const ROUTE_CONFIG: Record<TabRoute, {
 function getRouteFromPathname(pathname: string): TabRoute {
   const normalized = pathname.toLowerCase().replace(/\/$/, '') || '/';
   if (normalized === '/audio') return 'audio';
+  if (normalized === '/video-studio') return 'video-studio';
   if (normalized === '/video') return 'video';
   if (normalized === '/images' || normalized === '/image') return 'image';
   return 'all';
@@ -393,16 +403,17 @@ export const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Dedicated Video Studio Tab button */}
             <button
               type="button"
-              onClick={() => handleTabChange('video')}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                currentTab === 'video' 
-                  ? 'bg-lime-500 text-slate-950 border-lime-400' 
-                  : 'border-slate-700 bg-slate-800 text-slate-300 hover:text-white'
+              onClick={() => handleTabChange('video-studio')}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                currentTab === 'video-studio' 
+                  ? 'bg-gradient-to-r from-lime-500 to-emerald-500 text-slate-950 border-lime-400 shadow-md shadow-lime-500/20' 
+                  : 'border-slate-700 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white'
               }`}
             >
-              <Video className="w-3.5 h-3.5" />
+              <Clapperboard className="w-3.5 h-3.5" />
               <span>Video Studio</span>
             </button>
 
@@ -488,8 +499,11 @@ export const App: React.FC = () => {
           </p>
         </div>
 
-        {/* Video Studio Module on /video or Media Uploader on others */}
-        {currentTab === 'video' ? (
+        {/* WORKSPACE ROUTING:
+            - When on /video-studio: Dedicated VEED-style Video Studio Editor/Recorder
+            - When on /video, /audio, /images, or /: Original Media Converter workflow completely preserved!
+        */}
+        {currentTab === 'video-studio' ? (
           <VideoStudio
             user={user}
             guestRemaining={guestQuota.remaining}
@@ -506,7 +520,7 @@ export const App: React.FC = () => {
               guestRemaining={guestQuota.remaining}
               onSignIn={handleSignIn}
               isSigningIn={isSigningIn}
-              currentFilter={currentTab}
+              currentFilter={currentTab === 'video-studio' ? 'video' : currentTab}
               onFilterChange={handleTabChange}
             />
           </div>
@@ -523,10 +537,10 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Centralized Recent Conversion History (matching Image 1) */}
+        {/* Centralized Recent Conversion History */}
         <RecentUploadsGrid
           items={items}
-          activeFilter={currentTab}
+          activeFilter={currentTab === 'video-studio' ? 'video' : currentTab}
           onViewAllHistory={() => setIsHistoryOpen(true)}
           onSelectItem={(item) => setActiveItem(item)}
           onDeleteItem={handleDeleteItem}
@@ -545,7 +559,7 @@ export const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* View All History Modal (matching Images 2 & 3) */}
+      {/* View All History Modal */}
       <FullHistoryModal
         items={items}
         isOpen={isHistoryOpen}
