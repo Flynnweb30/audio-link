@@ -62,25 +62,29 @@ export interface BatchFileItem {
   result?: MediaItem;
 }
 
-export type AspectRatio = '16:9' | '9:16' | '1:1';
+export type AspectRatioType = '16:9' | '9:16' | '1:1' | '4:5';
 
-export interface VideoClipSegment {
+export interface VideoClip {
   id: string;
   name: string;
-  src: string;
+  url: string;
+  type: 'video' | 'audio' | 'image';
+  startTime: number;
+  endTime: number;
   duration: number;
-  startTrim: number;
-  endTrim: number;
   volume: number;
+  speed: number;
   muted: boolean;
 }
 
 export interface TextOverlay {
   id: string;
   text: string;
+  x: number;
+  y: number;
+  fontSize: number;
+  color: string;
+  backgroundColor?: string;
   startTime: number;
   endTime: number;
-  color: string;
-  fontSize: number;
-  positionY: number; // percentage from top (0-100)
 }

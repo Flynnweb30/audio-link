@@ -8,8 +8,7 @@ import {
   LogIn, 
   LogOut, 
   Loader2, 
-  Video, 
-  UploadCloud 
+  Video 
 } from 'lucide-react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 
@@ -22,6 +21,7 @@ import {
 } from './firebase/syncService';
 import { MediaItem, GuestQuotaInfo } from './types';
 import { AudioUploader } from './components/AudioUploader';
+import { VideoStudio } from './components/VideoStudio';
 import { UrlShareCard } from './components/UrlShareCard';
 import { RecentUploadsGrid } from './components/RecentUploadsGrid';
 import { FullHistoryModal } from './components/FullHistoryModal';
@@ -29,7 +29,6 @@ import { QrCodeModal } from './components/QrCodeModal';
 import { ProPricingModal } from './components/ProPricingModal';
 import { ApiAccessModal } from './components/ApiAccessModal';
 import { SharePlayerView } from './components/SharePlayerView';
-import { VideoStudioEditor } from './components/VideoStudioEditor';
 
 export type TabRoute = 'all' | 'audio' | 'video' | 'image';
 
@@ -59,11 +58,11 @@ const ROUTE_CONFIG: Record<TabRoute, {
   },
   video: {
     path: '/video',
-    title: 'Video Studio Editor, Recorder & MP4 Streaming CDN | AudioLink',
-    description: 'Edit, record, and convert video files into permanent direct streamable video URLs with timeline editing and chunked playback.',
-    badge: 'Video Studio Editor, Recorder & Streaming CDN',
-    heroHeading: 'Edit, Record & Turn Video into a',
-    heroSubheading: 'Full timeline video editor, webcam/screen recorder, and permanent direct streamable CDN links.',
+    title: 'Video Edit, Record & Streaming CDN Studio | AudioLink',
+    description: 'Edit, record, trim, and convert video files into permanent direct streamable video URLs with HTTP 206 chunked playback support.',
+    badge: 'Video Edit, Record & Direct CDN Studio',
+    heroHeading: 'Record, Edit & Stream Any Video into a',
+    heroSubheading: 'Record webcam, trim clips, split audio tracks, and export directly into permanent HTTP 206 Byte-Range streaming links.',
   },
   image: {
     path: '/images',
@@ -83,37 +82,6 @@ function getRouteFromPathname(pathname: string): TabRoute {
   return 'all';
 }
 
-const SAMPLE_MEDIA_LIST: MediaItem[] = [
-  {
-    id: 'sample_lofi_beat',
-    originalName: 'Lofi Chill Acoustic (Sample).mp3',
-    filename: 'sample_lofi_beat.mp3',
-    mediaType: 'audio',
-    mimeType: 'audio/mpeg',
-    size: 2450000,
-    createdAt: new Date().toISOString(),
-    duration: 65,
-    userId: 'system',
-    isGuest: false,
-    directUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
-    playerUrl: '/?view=sample_lofi_beat',
-  },
-  {
-    id: 'sample_nature_ambience',
-    originalName: 'Forest Birds Ambience (Sample).mp3',
-    filename: 'sample_nature_ambience.mp3',
-    mediaType: 'audio',
-    mimeType: 'audio/mpeg',
-    size: 1820000,
-    createdAt: new Date().toISOString(),
-    duration: 42,
-    userId: 'system',
-    isGuest: false,
-    directUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
-    playerUrl: '/?view=sample_nature_ambience',
-  }
-];
-
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -125,9 +93,6 @@ export const App: React.FC = () => {
     }
     return 'all';
   });
-
-  // Video Tab view mode: 'studio' (Video Editor/Recorder) vs 'converter' (Direct Link)
-  const [videoStudioMode, setVideoStudioMode] = useState<'studio' | 'converter'>('studio');
 
   const [items, setItems] = useState<MediaItem[]>([]);
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null);
@@ -167,7 +132,6 @@ export const App: React.FC = () => {
     } catch {}
   }, [getGuestId]);
 
-  // Sync route and SEO metadata
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -281,9 +245,7 @@ export const App: React.FC = () => {
       if (activeUser && serverItems.length > 0) {
         syncBatchToFirebase(serverItems, activeUser);
       }
-    } catch (err) {
-      console.warn('History sync notice:', err);
-    }
+    } catch {}
   }, [getGuestId]);
 
   useEffect(() => {
@@ -309,9 +271,8 @@ export const App: React.FC = () => {
     try {
       setIsSigningIn(true);
       await signInWithGoogle();
-    } catch (err) {
-      console.error(err);
-    } finally {
+    } catch {}
+    finally {
       setIsSigningIn(false);
     }
   };
@@ -325,9 +286,7 @@ export const App: React.FC = () => {
       await signOutUser();
       setItems([]);
       setActiveItem(null);
-    } catch (err) {
-      console.error(err);
-    }
+    } catch {}
   };
 
   const handleUploadSuccess = async (newItem: MediaItem) => {
@@ -375,13 +334,6 @@ export const App: React.FC = () => {
 
     if (!user) {
       refreshGuestQuota();
-    }
-  };
-
-  const handleSelectSample = (sampleId: string) => {
-    const found = SAMPLE_MEDIA_LIST.find((s) => s.id === sampleId) || SAMPLE_MEDIA_LIST[0];
-    if (found) {
-      setActiveItem(found);
     }
   };
 
@@ -441,6 +393,19 @@ export const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => handleTabChange('video')}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                currentTab === 'video' 
+                  ? 'bg-lime-500 text-slate-950 border-lime-400' 
+                  : 'border-slate-700 bg-slate-800 text-slate-300 hover:text-white'
+              }`}
+            >
+              <Video className="w-3.5 h-3.5" />
+              <span>Video Studio</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setIsHistoryOpen(true)}
@@ -509,97 +474,42 @@ export const App: React.FC = () => {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 sm:py-8 flex flex-col gap-6">
-        {/* If on /video tab: Provide quick mode toggle between Studio Editor & Direct Link Converter */}
-        {currentTab === 'video' ? (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800/80 p-2 rounded-2xl border border-slate-700">
-              <div className="flex items-center gap-2 px-2">
-                <Video className="w-5 h-5 text-emerald-400" />
-                <span className="font-bold text-sm text-white">Video Workspace:</span>
-              </div>
-
-              <div className="flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-700/80 text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setVideoStudioMode('studio')}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    videoStudioMode === 'studio'
-                      ? 'bg-emerald-500 text-slate-950 shadow-sm font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Video Studio Editor & Recorder
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setVideoStudioMode('converter')}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    videoStudioMode === 'converter'
-                      ? 'bg-emerald-500 text-slate-950 shadow-sm font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Direct URL Converter
-                </button>
-              </div>
-            </div>
-
-            {videoStudioMode === 'studio' ? (
-              <VideoStudioEditor
-                user={user}
-                onExportSuccess={handleUploadSuccess}
-                onUpgradePro={() => setIsProOpen(true)}
-              />
-            ) : (
-              <div className="space-y-6">
-                <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
-                  <AudioUploader
-                    onUploadSuccess={handleUploadSuccess}
-                    onBatchUploadSuccess={handleBatchUploadSuccess}
-                    onSelectSample={handleSelectSample}
-                    user={user}
-                    guestRemaining={guestQuota.remaining}
-                    onSignIn={handleSignIn}
-                    isSigningIn={isSigningIn}
-                    currentFilter={currentTab}
-                    onFilterChange={handleTabChange}
-                  />
-                </div>
-              </div>
-            )}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 sm:py-10 flex flex-col gap-8">
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{routeConfig.badge}</span>
           </div>
-        ) : (
-          /* Standard Workspace for All Media, Audio, and Image tabs */
-          <>
-            <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{routeConfig.badge}</span>
-              </div>
-              <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-                {routeConfig.heroHeading} <span className="text-emerald-400">Direct URL</span>
-              </h1>
-              <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto">
-                {routeConfig.heroSubheading}
-              </p>
-            </div>
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+            {routeConfig.heroHeading} <span className="text-emerald-400">Direct URL</span>
+          </h1>
+          <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto">
+            {routeConfig.heroSubheading}
+          </p>
+        </div>
 
-            {/* Media Uploader Card */}
-            <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
-              <AudioUploader
-                onUploadSuccess={handleUploadSuccess}
-                onBatchUploadSuccess={handleBatchUploadSuccess}
-                onSelectSample={handleSelectSample}
-                user={user}
-                guestRemaining={guestQuota.remaining}
-                onSignIn={handleSignIn}
-                isSigningIn={isSigningIn}
-                currentFilter={currentTab}
-                onFilterChange={handleTabChange}
-              />
-            </div>
-          </>
+        {/* Video Studio Module on /video or Media Uploader on others */}
+        {currentTab === 'video' ? (
+          <VideoStudio
+            user={user}
+            guestRemaining={guestQuota.remaining}
+            onExportSuccess={handleUploadSuccess}
+            onSignIn={handleSignIn}
+          />
+        ) : (
+          <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
+            <AudioUploader
+              onUploadSuccess={handleUploadSuccess}
+              onBatchUploadSuccess={handleBatchUploadSuccess}
+              onSelectSample={() => {}}
+              user={user}
+              guestRemaining={guestQuota.remaining}
+              onSignIn={handleSignIn}
+              isSigningIn={isSigningIn}
+              currentFilter={currentTab}
+              onFilterChange={handleTabChange}
+            />
+          </div>
         )}
 
         {/* Active Upload Result / Preview Widget */}
@@ -613,7 +523,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Centralized Recent Conversion History */}
+        {/* Centralized Recent Conversion History (matching Image 1) */}
         <RecentUploadsGrid
           items={items}
           activeFilter={currentTab}
@@ -635,7 +545,7 @@ export const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* View All History Modal */}
+      {/* View All History Modal (matching Images 2 & 3) */}
       <FullHistoryModal
         items={items}
         isOpen={isHistoryOpen}
