@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#14b8a6" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#0f172a" />
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="none" stroke="url(#grad)" stroke-width="2" opacity="0.4" />
+  <!-- Sound Waves & Radio Link -->
+  <path d="M12 32h6M18 24v16M24 16v32M30 20v24M36 12v40M42 22v20M48 27v10M54 32h-4" 
+        stroke="url(#grad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- Central Accent Circle -->
+  <circle cx="36" cy="32" r="4" fill="#34d399" />
+</svg>

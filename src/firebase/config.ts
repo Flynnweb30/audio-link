@@ -38,8 +38,8 @@ try {
 } catch {
   try {
     firestoreInstance = initializeFirestore(app, {});
-  } catch (err) {
-    console.warn('Firestore fallback mode initialized');
+  } catch {
+    firestoreInstance = null;
   }
 }
 

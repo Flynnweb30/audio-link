@@ -50,7 +50,6 @@ function loadRegistry(): void {
     if (fs.existsSync(METADATA_FILE)) {
       const data = fs.readFileSync(METADATA_FILE, 'utf-8');
       mediaRegistry = JSON.parse(data);
-      // Prune records whose files don't exist on disk or are corrupted (< 32 bytes)
       let modified = false;
       for (const [id, item] of Object.entries(mediaRegistry)) {
         const itemPath = path.join(UPLOADS_DIR, item.filename);
@@ -76,21 +75,23 @@ function loadRegistry(): void {
       mediaRegistry = {};
       saveRegistry();
     }
-  } catch (err) {
-    console.error('Error loading media registry:', err);
+  } catch {
     mediaRegistry = {};
   }
 }
 
 function saveRegistry(): void {
   try {
-    fs.writeFileSync(METADATA_FILE, JSON.stringify(mediaRegistry, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error saving media registry:', err);
+    const tempFile = `${METADATA_FILE}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    fs.writeFileSync(tempFile, JSON.stringify(mediaRegistry, null, 2), 'utf-8');
+    fs.renameSync(tempFile, METADATA_FILE);
+  } catch {
+    try {
+      fs.writeFileSync(METADATA_FILE, JSON.stringify(mediaRegistry, null, 2), 'utf-8');
+    } catch {}
   }
 }
 
-// Load registry (clean start, zero sample files)
 loadRegistry();
 
 function detectMediaType(ext: string, mime?: string): MediaType {
@@ -144,7 +145,6 @@ const storage = multer.diskStorage({
     const customSlug = (req.body?.customSlug || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
 
     if (customSlug) {
-      // Use custom slug if provided
       const finalName = `${customSlug}${ext}`;
       if (!fs.existsSync(path.join(UPLOADS_DIR, finalName))) {
         return cb(null, finalName);
@@ -173,7 +173,7 @@ const upload = multer({
     if (ALLOWED_EXTENSIONS.has(ext) || file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/') || file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
-      cb(new Error(`Unsupported file type: ${ext || file.mimetype}. Allowed: MP3, WAV, M4A, OGG, MP4, WEBM, PNG, JPG, WEBP, AVIF.`));
+      cb(new Error(`Unsupported file type: ${ext || file.mimetype}. Allowed: MP3, WAV, M4A, OGG, MP4, WEBM, PNG, JPG, WEBP.`));
     }
   },
 });
@@ -193,7 +193,6 @@ function streamMediaFile(
   const fileSize = stat.size;
   const range = req.headers.range;
 
-  // Set permissive CORS and stream headers for audio/video HTML5 players
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, Authorization, x-user-id');
@@ -263,9 +262,46 @@ async function startServer() {
     res.json({ status: 'healthy', timestamp: new Date().toISOString() });
   });
 
-  // Upload single or multiple media
+  // SEO: Dynamic sitemap endpoint reflecting all public media
+  app.get('/sitemap.xml', (req, res) => {
+    res.setHeader('Content-Type', 'application/xml');
+    const baseUrl = getBaseUrl(req);
+    const dateToday = new Date().toISOString().split('T')[0];
+
+    const mediaUrls = Object.values(mediaRegistry)
+      .filter((m) => !m.password)
+      .map((m) => `
+  <url>
+    <loc>${baseUrl}/?view=${m.id}</loc>
+    <lastmod>${m.createdAt ? m.createdAt.split('T')[0] : dateToday}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>`)
+      .join('');
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${baseUrl}/</loc>
+    <lastmod>${dateToday}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>${mediaUrls}
+</urlset>`;
+
+    res.send(xml);
+  });
+
+  app.get('/robots.txt', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain');
+    const baseUrl = getBaseUrl(req);
+    res.send(`User-agent: *\nAllow: /\nAllow: /media/\nAllow: /api/media/\nSitemap: ${baseUrl}/sitemap.xml\n`);
+  });
+
   app.post('/api/upload', (req, res) => {
     upload.any()(req, res, (err: any) => {
+      res.setHeader('Content-Type', 'application/json');
+
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({ success: false, error: 'File size exceeds 100MB limit.' });
@@ -345,78 +381,8 @@ async function startServer() {
     });
   });
 
-  // Upload bulk media files (Batch Upload feature for guests and pro users)
-  app.post('/api/upload-bulk', (req, res) => {
-    upload.any()(req, res, (err: any) => {
-      if (err instanceof multer.MulterError) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({ success: false, error: 'One or more files exceed the 100MB size limit.' });
-        }
-        return res.status(400).json({ success: false, error: `Batch upload error: ${err.message}` });
-      } else if (err) {
-        return res.status(400).json({ success: false, error: err.message || 'Failed to upload files.' });
-      }
-
-      const files = req.files as Express.Multer.File[] | undefined;
-      if (!files || files.length === 0) {
-        return res.status(400).json({ success: false, error: 'No files provided for bulk upload.' });
-      }
-
-      const baseUrl = getBaseUrl(req);
-      const userId = (req.headers['x-user-id'] as string) || (req.body?.userId as string) || 'guest';
-      const folder = (req.body?.folder as string) || 'public';
-      const expiresAt = (req.body?.expiresAt as string) || undefined;
-
-      const results: MediaItem[] = [];
-
-      for (const file of files) {
-        const ext = path.extname(file.filename);
-        const fileId = path.parse(file.filename).name;
-        const mediaType = detectMediaType(ext, file.mimetype);
-        const mimeType = inferMimeType(ext, file.mimetype);
-
-        const mediaItem: MediaItem = {
-          id: fileId,
-          originalName: file.originalname,
-          filename: file.filename,
-          mediaType,
-          mimeType,
-          size: file.size,
-          createdAt: new Date().toISOString(),
-          userId,
-          folder,
-          expiresAt,
-          views: 0,
-          plays: 0,
-          downloads: 0,
-        };
-
-        mediaRegistry[fileId] = mediaItem;
-
-        const directUrl = `${baseUrl}/media/${file.filename}`;
-        const playerUrl = `${baseUrl}/?view=${fileId}`;
-
-        results.push({
-          ...mediaItem,
-          directUrl,
-          directAudioUrl: directUrl,
-          playerUrl,
-        });
-      }
-
-      saveRegistry();
-
-      return res.status(201).json({
-        success: true,
-        item: results[0],
-        items: results,
-        count: results.length,
-      });
-    });
-  });
-
-  // Query media list with optional user isolation
   app.get('/api/media', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
     const baseUrl = getBaseUrl(req);
     const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
     const typeFilter = req.query.type as string;
@@ -450,27 +416,8 @@ async function startServer() {
     res.json({ items: formatted });
   });
 
-  // Backward compatible route
-  app.get('/api/audios', (req, res) => {
-    const baseUrl = getBaseUrl(req);
-    const items = Object.values(mediaRegistry)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .map((item) => {
-        const directUrl = `${baseUrl}/media/${item.filename}`;
-        return {
-          ...item,
-          password: undefined,
-          directUrl,
-          directAudioUrl: directUrl,
-          playerUrl: `${baseUrl}/?view=${item.id}`,
-        };
-      });
-
-    res.json({ items });
-  });
-
-  // Single media metadata
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
     const id = req.params.id;
     const item = mediaRegistry[id];
 
@@ -478,7 +425,6 @@ async function startServer() {
       return res.status(404).json({ error: 'Media not found' });
     }
 
-    // Check expiration
     if (item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) {
       return res.status(410).json({ error: 'This media link has expired.' });
     }
@@ -497,19 +443,16 @@ async function startServer() {
     });
   });
 
-  // Direct media stream route
   app.get('/media/:filename', (req, res) => {
     const filename = req.params.filename;
     const fileId = path.parse(filename).name;
     const item = mediaRegistry[fileId] || Object.values(mediaRegistry).find((m) => m.filename === filename);
 
     if (item) {
-      // Check expiration
       if (item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) {
         return res.status(410).send('This media link has expired.');
       }
 
-      // Check password if set
       if (item.password) {
         const providedPass = req.headers['x-media-password'] || req.query.pwd;
         if (providedPass !== item.password) {
@@ -517,7 +460,6 @@ async function startServer() {
         }
       }
 
-      // Increment analytics view count
       item.views = (item.views || 0) + 1;
       if (item.mediaType === 'audio' || item.mediaType === 'video') {
         item.plays = (item.plays || 0) + 1;
@@ -535,29 +477,12 @@ async function startServer() {
     streamMediaFile(req, res, filePath, mimeType);
   });
 
-  // Backward compatibility alias routes
-  app.get(['/audio/:filename', '/file/:filename'], (req, res) => {
-    const filename = req.params.filename;
-    const filePath = path.join(UPLOADS_DIR, filename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    const ext = path.extname(filename);
-    const mimeType = inferMimeType(ext);
-    streamMediaFile(req, res, filePath, mimeType);
-  });
-
-  // Download endpoint with download counter
   app.get(['/api/media/:id/download', '/api/audio/:id/download'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
 
     if (!item) {
       return res.status(404).json({ error: 'Media not found' });
-    }
-
-    if (item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) {
-      return res.status(410).send('This media link has expired.');
     }
 
     item.downloads = (item.downloads || 0) + 1;
@@ -567,8 +492,8 @@ async function startServer() {
     streamMediaFile(req, res, filePath, item.mimeType, item.originalName);
   });
 
-  // Delete media endpoint
   app.delete(['/api/media/:id', '/api/audio/:id'], (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
     const id = req.params.id;
     const item = mediaRegistry[id];
 
@@ -580,9 +505,7 @@ async function startServer() {
     if (fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);
-      } catch (err) {
-        console.error('Error deleting file:', err);
-      }
+      } catch {}
     }
 
     delete mediaRegistry[id];
@@ -591,18 +514,17 @@ async function startServer() {
     return res.json({ success: true, message: 'Media deleted successfully' });
   });
 
-  // Catch-all for undefined /api routes so they return JSON, never HTML
   app.all('/api/*', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
     res.status(404).json({ success: false, error: 'API endpoint not found.' });
   });
 
-  // Express error handler for unhandled errors
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error('Express caught error:', err);
     const status = err.status || (err.name === 'MulterError' ? 400 : 500);
+    res.setHeader('Content-Type', 'application/json');
     res.status(status).json({
       success: false,
-      error: err.message || 'An unexpected error occurred during processing.',
+      error: err.message || 'An error occurred during media processing.',
     });
   });
 
