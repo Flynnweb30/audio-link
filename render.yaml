@@ -1,4 +1,4 @@
-services:
+﻿services:
   - type: web
     name: audiolink-media-service
     env: node
@@ -13,8 +13,3 @@ services:
         value: 10000
       - key: APP_URL
         sync: false
-    # If on a paid plan with persistent disk, uncomment the disk configuration:
-    # disk:
-    #   name: media-storage
-    #   mountPath: /var/data
-    #   sizeGB: 10
