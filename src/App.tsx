@@ -3,15 +3,12 @@ import {
   Radio, 
   Sparkles, 
   History, 
-  ShieldCheck, 
   Code2, 
   Crown, 
   LogIn, 
   LogOut, 
   Loader2, 
-  Share2, 
-  Music, 
-  Folder 
+  Music 
 } from 'lucide-react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -25,6 +22,33 @@ import { QrCodeModal } from './components/QrCodeModal';
 import { ProPricingModal } from './components/ProPricingModal';
 import { ApiAccessModal } from './components/ApiAccessModal';
 import { SharePlayerView } from './components/SharePlayerView';
+
+const SAMPLE_MEDIA_LIST: MediaItem[] = [
+  {
+    id: 'sample_lofi_beat',
+    originalName: 'Lofi Chill Acoustic (Sample).mp3',
+    filename: 'sample_lofi_beat.mp3',
+    mediaType: 'audio',
+    mimeType: 'audio/mpeg',
+    size: 2450000,
+    createdAt: new Date().toISOString(),
+    duration: 65,
+    directUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
+    playerUrl: '/?view=sample_lofi_beat',
+  },
+  {
+    id: 'sample_nature_ambience',
+    originalName: 'Forest Birds Ambience (Sample).mp3',
+    filename: 'sample_nature_ambience.mp3',
+    mediaType: 'audio',
+    mimeType: 'audio/mpeg',
+    size: 1820000,
+    createdAt: new Date().toISOString(),
+    duration: 42,
+    directUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
+    playerUrl: '/?view=sample_nature_ambience',
+  }
+];
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -47,7 +71,6 @@ export const App: React.FC = () => {
 
   const isFirestoreActiveRef = useRef<boolean>(true);
 
-  // Check query parameter for direct standalone player view
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const viewId = params.get('view');
@@ -56,7 +79,6 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Monitor Firebase Auth state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -65,7 +87,6 @@ export const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Fetch items from primary Express backend
   const fetchBackendMedia = useCallback(async () => {
     try {
       const res = await fetch('/api/media');
@@ -79,7 +100,7 @@ export const App: React.FC = () => {
         }
       }
     } catch {
-      // Backend temporarily offline; uses cache
+      // Offline fallback
     }
   }, [activeItem]);
 
@@ -87,7 +108,6 @@ export const App: React.FC = () => {
     fetchBackendMedia();
   }, [fetchBackendMedia]);
 
-  // Firestore real-time sync with ad-blocker & permission-denied protection
   useEffect(() => {
     if (!db || !isFirestoreActiveRef.current) return;
 
@@ -99,7 +119,13 @@ export const App: React.FC = () => {
         (snapshot) => {
           const remoteItems: MediaItem[] = [];
           snapshot.forEach((d) => {
-            remoteItems.push(d.data() as MediaItem);
+            const data = d.data() as MediaItem;
+            if (data && data.id) {
+              remoteItems.push({
+                ...data,
+                duration: Number(data.duration ?? data.metadata?.duration ?? 0),
+              });
+            }
           });
 
           if (remoteItems.length > 0) {
@@ -114,7 +140,6 @@ export const App: React.FC = () => {
           }
         },
         (error: any) => {
-          // Gracefully mute permissions or ERR_BLOCKED_BY_CLIENT spam
           if (
             error?.code === 'permission-denied' ||
             error?.message?.includes('ERR_BLOCKED_BY_CLIENT') ||
@@ -157,8 +182,12 @@ export const App: React.FC = () => {
   };
 
   const handleUploadSuccess = async (newItem: MediaItem) => {
-    setActiveItem(newItem);
-    setItems((prev) => [newItem, ...prev.filter((i) => i.id !== newItem.id)]);
+    const safeItem: MediaItem = {
+      ...newItem,
+      duration: Number(newItem?.duration ?? newItem?.metadata?.duration ?? 0),
+    };
+    setActiveItem(safeItem);
+    setItems((prev) => [safeItem, ...prev.filter((i) => i.id !== safeItem.id)]);
 
     if (!user) {
       const newCount = guestCount + 1;
@@ -166,45 +195,54 @@ export const App: React.FC = () => {
       localStorage.setItem('audiolink_guest_count', newCount.toString());
     }
 
-    // Attempt Firestore sync if enabled
     if (db && isFirestoreActiveRef.current) {
       try {
-        await setDoc(doc(db, 'media', newItem.id), newItem, { merge: true });
-      } catch (err: any) {
-        if (err?.code === 'permission-denied' || err?.message?.includes('ERR_BLOCKED_BY_CLIENT')) {
-          isFirestoreActiveRef.current = false;
-        }
+        await setDoc(doc(db, 'media', safeItem.id), safeItem, { merge: true });
+      } catch {
+        isFirestoreActiveRef.current = false;
       }
     }
   };
 
   const handleBatchUploadSuccess = async (newItems: MediaItem[]) => {
     if (newItems.length === 0) return;
-    setActiveItem(newItems[0]);
+    const safeItems = newItems.map((item) => ({
+      ...item,
+      duration: Number(item?.duration ?? item?.metadata?.duration ?? 0),
+    }));
+
+    setActiveItem(safeItems[0]);
 
     setItems((prev) => {
       const map = new Map<string, MediaItem>();
       prev.forEach((i) => map.set(i.id, i));
-      newItems.forEach((i) => map.set(i.id, i));
+      safeItems.forEach((i) => map.set(i.id, i));
       return Array.from(map.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
     });
 
     if (!user) {
-      const newCount = guestCount + newItems.length;
+      const newCount = guestCount + safeItems.length;
       setGuestCount(newCount);
       localStorage.setItem('audiolink_guest_count', newCount.toString());
     }
 
     if (db && isFirestoreActiveRef.current) {
       try {
-        for (const item of newItems) {
+        for (const item of safeItems) {
           await setDoc(doc(db, 'media', item.id), item, { merge: true });
         }
       } catch {
         isFirestoreActiveRef.current = false;
       }
+    }
+  };
+
+  const handleSelectSample = (sampleId: string) => {
+    const found = SAMPLE_MEDIA_LIST.find((s) => s.id === sampleId) || SAMPLE_MEDIA_LIST[0];
+    if (found) {
+      setActiveItem(found);
     }
   };
 
@@ -242,7 +280,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Header */}
+      {/* Top Navigation */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveItem(null)}>
@@ -317,11 +355,7 @@ export const App: React.FC = () => {
                 onClick={handleSignIn}
                 className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
               >
-                {isSigningIn ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <LogIn className="w-3.5 h-3.5" />
-                )}
+                {isSigningIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
                 <span>Sign In</span>
               </button>
             )}
@@ -329,7 +363,7 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Container */}
+      {/* Main Content Area */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col gap-8">
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
@@ -340,16 +374,16 @@ export const App: React.FC = () => {
             Turn Any Audio & Video into a <span className="text-emerald-400">Direct URL</span>
           </h1>
           <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto">
-            Upload media and get immediate streamable HTTP links with 206 Byte-Range streaming. Perfect for bots, games, web apps, and embeds.
+            Upload media and get permanent streamable HTTP links with 206 Byte-Range streaming. Perfect for bots, games, web apps, and embeds.
           </p>
         </div>
 
-        {/* Audio/Media Uploader Card */}
+        {/* Uploader Card */}
         <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
           <AudioUploader
             onUploadSuccess={handleUploadSuccess}
             onBatchUploadSuccess={handleBatchUploadSuccess}
-            onSelectSample={() => {}}
+            onSelectSample={handleSelectSample}
             user={user}
             guestRemaining={guestRemaining}
             onSignIn={handleSignIn}
@@ -374,9 +408,9 @@ export const App: React.FC = () => {
         <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p>© {new Date().getFullYear()} AudioLink v2. Centralized Media Service.</p>
           <div className="flex items-center gap-4">
-            <button onClick={() => setIsApiOpen(true)} className="hover:text-slate-300">API Documentation</button>
-            <button onClick={() => setIsProOpen(true)} className="hover:text-slate-300">Pro Features</button>
-            <button onClick={() => setIsHistoryOpen(true)} className="hover:text-slate-300">My Storage</button>
+            <button onClick={() => setIsApiOpen(true)} className="hover:text-slate-300 cursor-pointer">API Documentation</button>
+            <button onClick={() => setIsProOpen(true)} className="hover:text-slate-300 cursor-pointer">Pro Features</button>
+            <button onClick={() => setIsHistoryOpen(true)} className="hover:text-slate-300 cursor-pointer">My Storage</button>
           </div>
         </div>
       </footer>

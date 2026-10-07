@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Terminal, Key, Code } from 'lucide-react';
+import { X, Copy, Check, Code2, Terminal } from 'lucide-react';
 import { copyToClipboard } from '../utils/formatters';
 
 interface ApiAccessModalProps {
@@ -11,108 +11,75 @@ export const ApiAccessModal: React.FC<ApiAccessModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const [apiKey, setApiKey] = useState('al_live_' + Math.random().toString(36).substring(2, 12));
-  const [copiedKey, setCopiedKey] = useState(false);
-  const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
   const curlSnippet = `curl -X POST "${window.location.origin}/api/upload" \\
-  -H "x-api-key: ${apiKey}" \\
-  -F "file=@your-file.mp3"`;
+  -F "file=@your_audio.mp3" \\
+  -H "x-user-id: my_app_user"`;
 
-  const jsSnippet = `const formData = new FormData();
-formData.append('file', fileInput.files[0]);
-
-const res = await fetch('${window.location.origin}/api/upload', {
-  method: 'POST',
-  headers: { 'x-api-key': '${apiKey}' },
-  body: formData
-});
-const { directUrl } = await res.json();
-console.log('Stream URL:', directUrl);`;
-
-  const handleCopyKey = async () => {
-    const ok = await copyToClipboard(apiKey);
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(curlSnippet);
     if (ok) {
-      setCopiedKey(true);
-      setTimeout(() => setCopiedKey(false), 2000);
-    }
-  };
-
-  const handleCopySnippet = async (text: string) => {
-    const ok = await copyToClipboard(text);
-    if (ok) {
-      setCopiedSnippet(true);
-      setTimeout(() => setCopiedSnippet(false), 2000);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto">
-        <button
-          onClick={onClose}
-          className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center">
-            <Terminal className="w-5 h-5 text-emerald-400" />
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 text-left space-y-4 shadow-2xl animate-in zoom-in-95"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2 text-white font-bold text-base">
+            <Code2 className="w-5 h-5 text-indigo-400" />
+            <span>Developer REST API</span>
           </div>
-          <div>
-            <h2 className="text-base font-bold text-slate-900">Developer API Access</h2>
-            <p className="text-xs text-slate-500">Programmatic media upload and URL generation.</p>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            title="Close (X)"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* API Key box */}
-        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 mb-5">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Your Live API Key</span>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              readOnly
-              value={apiKey}
-              className="flex-1 text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-mono text-slate-800"
-            />
-            <button
-              onClick={handleCopyKey}
-              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap"
-            >
-              {copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedKey ? 'Copied' : 'Copy'}</span>
-            </button>
-          </div>
-        </div>
+        <p className="text-xs text-slate-400">
+          Upload media directly via HTTP multipart POST to generate direct streamable URLs programmatically.
+        </p>
 
-        {/* cURL Example */}
-        <div className="space-y-2 mb-4">
-          <div className="flex justify-between items-center text-xs font-bold text-slate-700">
-            <span>Terminal cURL Example</span>
-            <button
-              onClick={() => handleCopySnippet(curlSnippet)}
-              className="text-[11px] text-emerald-700 hover:underline flex items-center gap-1"
-            >
-              {copiedSnippet ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              <span>Copy cURL</span>
-            </button>
-          </div>
-          <pre className="p-3 bg-slate-950 text-slate-100 rounded-xl text-xs font-mono overflow-x-auto">
-            {curlSnippet}
-          </pre>
-        </div>
-
-        {/* JavaScript Example */}
         <div className="space-y-2">
-          <div className="flex justify-between items-center text-xs font-bold text-slate-700">
-            <span>JavaScript / Node.js Snippet</span>
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span className="flex items-center gap-1 font-semibold">
+              <Terminal className="w-3.5 h-3.5" /> cURL Example
+            </span>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer font-medium"
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copied ? 'Copied' : 'Copy cURL'}</span>
+            </button>
           </div>
-          <pre className="p-3 bg-slate-950 text-slate-100 rounded-xl text-xs font-mono overflow-x-auto">
-            {jsSnippet}
+
+          <pre className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-emerald-300 overflow-x-auto select-all">
+            <code>{curlSnippet}</code>
           </pre>
+        </div>
+
+        <div className="p-3 bg-slate-800/60 rounded-xl text-[11px] text-slate-300 space-y-1">
+          <p className="font-bold text-white">Returns JSON Response:</p>
+          <code className="text-slate-400 font-mono block">
+            {`{ "success": true, "directUrl": "https://.../media/file.mp3", "mediaType": "audio" }`}
+          </code>
         </div>
       </div>
     </div>

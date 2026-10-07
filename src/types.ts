@@ -14,18 +14,31 @@ export interface MediaItem {
   userId?: string;
   folder?: string;
   directUrl: string;
-  playerUrl: string;
+  directAudioUrl?: string;
+  playerUrl?: string;
   customSlug?: string;
   expiresAt?: string;
+  password?: string;
   hasPassword?: boolean;
   views?: number;
   plays?: number;
   downloads?: number;
+  metadata?: {
+    duration?: number;
+    bitrate?: number;
+    format?: string;
+    sampleRate?: number;
+  };
 }
 
-export type AudioItem = MediaItem;
-
-export type UploadState = 'idle' | 'validating' | 'uploading' | 'processing' | 'success' | 'error';
+export interface UploadProgress {
+  state: 'idle' | 'uploading' | 'success' | 'error';
+  percentage: number;
+  errorMessage: string | null;
+  uploadedMedia: MediaItem | null;
+  batchTotal?: number;
+  batchCompleted?: number;
+}
 
 export interface BatchFileItem {
   id: string;
@@ -36,14 +49,4 @@ export interface BatchFileItem {
   progress: number;
   error?: string;
   result?: MediaItem;
-}
-
-export interface UploadProgress {
-  state: UploadState;
-  percentage: number;
-  errorMessage: string | null;
-  uploadedMedia: MediaItem | null;
-  batchItems?: BatchFileItem[];
-  batchTotal?: number;
-  batchCompleted?: number;
 }
