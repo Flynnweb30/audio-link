@@ -1,5 +1,22 @@
 export type MediaType = 'audio' | 'video' | 'image';
 
+export type MediaStatus =
+  | 'uploading'
+  | 'processing'
+  | 'success'
+  | 'error'
+  | 'delete_error';
+
+export type HistoryAction =
+  | 'upload'
+  | 'conversion'
+  | 'preview'
+  | 'copy'
+  | 'play'
+  | 'download'
+  | 'delete'
+  | 'error';
+
 export interface MediaItem {
   id: string;
   originalName: string;
@@ -8,6 +25,11 @@ export interface MediaItem {
   mimeType: string;
   size: number;
   createdAt: string;
+  updatedAt?: string;
+  status?: MediaStatus;
+  error?: string;
+  lastAction?: HistoryAction;
+  lastActionAt?: string;
   duration?: number;
   width?: number;
   height?: number;

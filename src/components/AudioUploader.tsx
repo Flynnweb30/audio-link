@@ -9,23 +9,26 @@ import {
   Loader2, 
   Mic, 
   Square, 
-  Sparkles, 
-  Layers, 
-  Lock, 
-  Files, 
-  X, 
-  Copy, 
-  Check, 
-  Download, 
-  ExternalLink, 
-  Plus 
+  Sparkles,
+  Layers,
+  Lock,
+  Files,
+  X,
+  Copy,
+  Check,
+  Download,
+  ExternalLink,
+  Plus
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { MediaItem, UploadProgress, BatchFileItem } from '../types';
 import { formatFileSize, copyToClipboard } from '../utils/formatters';
+import { extractMediaItem, getApiErrorMessage } from '../utils/api';
+import { createHistoryErrorItem } from '../utils/history';
 
 interface AudioUploaderProps {
   onUploadSuccess: (item: MediaItem) => void;
+  onUploadError?: (item: MediaItem) => void;
   onBatchUploadSuccess?: (items: MediaItem[]) => void;
   onSelectSample: (sampleId: string) => void;
   user: User | null;
@@ -34,7 +37,7 @@ interface AudioUploaderProps {
   isSigningIn?: boolean;
 }
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024;
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB per file
 const MAX_BATCH_FILES = 50;
 
 const ALLOWED_EXTS = [
@@ -45,6 +48,7 @@ const ALLOWED_EXTS = [
 
 export const AudioUploader: React.FC<AudioUploaderProps> = ({
   onUploadSuccess,
+  onUploadError,
   onBatchUploadSuccess,
   onSelectSample,
   user,
@@ -57,6 +61,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Batch queue state
   const [batchQueue, setBatchQueue] = useState<BatchFileItem[]>([]);
   const [batchCompletedItems, setBatchCompletedItems] = useState<MediaItem[]>([]);
   const [copiedAllBatch, setCopiedAllBatch] = useState(false);
@@ -69,6 +74,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     uploadedMedia: null,
   });
 
+  // Microphone recording state
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -88,11 +94,11 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     const isImage = file.type.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp'].includes(ext);
 
     if (!isAudio && !isVideo && !isImage && !ALLOWED_EXTS.includes(ext)) {
-      return `Unsupported format "${ext || file.type}". Supported: MP3, WAV, M4A, OGG, MP4, WEBM, MOV, PNG, JPG, WEBP, AVIF.`;
+      return `Unsupported format "${ext || file.type}". Supported formats: MP3, WAV, M4A, OGG, MP4, WEBM, MOV, PNG, JPG, WEBP, AVIF, SVG.`;
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return `"${file.name}" (${formatFileSize(file.size)}) exceeds 100MB limit.`;
+      return `"${file.name}" (${formatFileSize(file.size)}) exceeds maximum limit of 100MB.`;
     }
 
     if (file.size === 0) {
@@ -116,21 +122,27 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     return <FileAudio className="w-4 h-4 text-indigo-500" />;
   };
 
+  // Handle single file upload
   const handleSingleFileSelection = (file: File) => {
     if (isQuotaExhausted) return;
+
     setValidationError(null);
     const error = validateFile(file);
     if (error) {
       setValidationError(error);
       return;
     }
+
     startSingleUpload(file);
   };
 
+  // Add multiple files to batch queue
   const handleAddFilesToBatch = (files: FileList | File[]) => {
     if (isQuotaExhausted) return;
+
     setValidationError(null);
     const fileList = Array.from(files);
+
     if (fileList.length === 0) return;
 
     if (batchQueue.length + fileList.length > MAX_BATCH_FILES) {
@@ -138,11 +150,12 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       return;
     }
 
+    // Check guest credits
     if (!user) {
       const totalCount = batchQueue.length + fileList.length;
       if (totalCount > guestRemaining) {
         setValidationError(
-          `You have ${guestRemaining} guest credit(s) remaining this month. Sign in with Google for unlimited batch conversions.`
+          `You have ${guestRemaining} guest credit(s) remaining this month. You selected ${totalCount} files. Sign in with Google for unlimited batch uploads, or reduce your selection.`
         );
       }
     }
@@ -185,101 +198,115 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     setValidationError(null);
   };
 
+  // Upload a single file with strict response validation and isolated failure handling.
   const startSingleUpload = (file: File) => {
     setUploadProgress({
       state: 'uploading',
-      percentage: 10,
+      percentage: 5,
       errorMessage: null,
       uploadedMedia: null,
     });
 
+    const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
     const formData = new FormData();
     formData.append('file', file);
     formData.append('folder', 'public');
-
-    const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
     formData.append('userId', effectiveUserId);
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload', true);
     xhr.setRequestHeader('x-user-id', effectiveUserId);
+    xhr.timeout = 120000;
+
+    const fail = (message: string) => {
+      const mediaType = file.type.startsWith('video/')
+        ? 'video'
+        : file.type.startsWith('image/')
+          ? 'image'
+          : 'audio';
+      const historyItem = createHistoryErrorItem({
+        id: `error_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        originalName: file.name,
+        size: file.size,
+        mediaType,
+        mimeType: file.type || 'application/octet-stream',
+        error: message,
+        userId: effectiveUserId,
+      });
+      setUploadProgress({
+        state: 'error',
+        percentage: 0,
+        errorMessage: message,
+        uploadedMedia: null,
+      });
+      onUploadError?.(historyItem);
+    };
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percent = Math.min(95, Math.round((event.loaded / event.total) * 90) + 5);
-        setUploadProgress((prev) => ({
-          ...prev,
-          state: 'uploading',
-          percentage: percent,
-        }));
+        setUploadProgress((prev) => ({ ...prev, state: 'uploading', percentage: percent }));
       }
     };
 
     xhr.onload = () => {
-      let response: any = null;
+      let payload: unknown;
       try {
-        const raw = (xhr.responseText || '').trim();
-        if (!raw) throw new Error('Empty server response');
-        response = JSON.parse(raw);
+        if (!xhr.responseText?.trim()) {
+          fail(`Server returned an empty response (HTTP ${xhr.status}).`);
+          return;
+        }
+        payload = JSON.parse(xhr.responseText);
       } catch {
-        setUploadProgress({
-          state: 'error',
-          percentage: 0,
-          errorMessage: xhr.status >= 400
-            ? `Server error ${xhr.status}. Please try again.`
-            : 'Server returned an invalid format. Please verify connection.',
-          uploadedMedia: null,
-        });
+        fail(
+          xhr.status >= 400
+            ? `Server returned invalid JSON for HTTP ${xhr.status}.`
+            : 'Server returned malformed JSON. Please retry the upload.'
+        );
         return;
       }
 
-      if (xhr.status >= 200 && xhr.status < 300 && response) {
-        const mediaItem: MediaItem = response.item || (response.items && response.items[0]);
-        if (!mediaItem) {
-          setUploadProgress({
-            state: 'error',
-            percentage: 0,
-            errorMessage: response.error || 'Server did not return media item details.',
-            uploadedMedia: null,
-          });
-          return;
-        }
-
-        setUploadProgress({
-          state: 'success',
-          percentage: 100,
-          errorMessage: null,
-          uploadedMedia: mediaItem,
-        });
-
-        try {
-          onUploadSuccess(mediaItem);
-        } catch (callbackErr) {
-          console.error('Error in onUploadSuccess callback:', callbackErr);
-        }
-      } else {
-        const errorMsg = response?.error || `Upload failed with status ${xhr.status}.`;
-        setUploadProgress({
-          state: 'error',
-          percentage: 0,
-          errorMessage: errorMsg,
-          uploadedMedia: null,
-        });
+      if (xhr.status < 200 || xhr.status >= 300) {
+        fail(getApiErrorMessage(payload, `Upload failed with HTTP ${xhr.status}.`));
+        return;
       }
-    };
 
-    xhr.onerror = () => {
+      const mediaItem = extractMediaItem(payload);
+      if (!mediaItem) {
+        fail('Upload completed, but the server returned no valid media metadata.');
+        return;
+      }
+
+      const completedItem: MediaItem = {
+        ...mediaItem,
+        status: 'success',
+        lastAction: 'upload',
+        updatedAt: new Date().toISOString(),
+        lastActionAt: new Date().toISOString(),
+      };
+
       setUploadProgress({
-        state: 'error',
-        percentage: 0,
-        errorMessage: 'Network connection lost during upload. Please retry.',
-        uploadedMedia: null,
+        state: 'success',
+        percentage: 100,
+        errorMessage: null,
+        uploadedMedia: completedItem,
       });
+      onUploadSuccess(completedItem);
     };
 
-    xhr.send(formData);
+    xhr.onerror = () => fail('Network connection lost during upload. Please check your connection and retry.');
+    xhr.ontimeout = () => fail('Upload timed out after 120 seconds. Please retry.');
+    xhr.onabort = () => fail('Upload was cancelled before completion.');
+
+    try {
+      xhr.send(formData);
+    } catch (error: any) {
+      fail(error?.message || 'Unable to start the upload.');
+    }
   };
 
+  // Upload batch items through a small worker pool. Each request has its own
+  // response parser, timeout, status, and History error boundary.
   const startBatchUpload = async () => {
     if (batchQueue.length === 0) return;
 
@@ -288,33 +315,90 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
     const filesToUploadCount = pendingItems.length;
     if (!user && guestRemaining < filesToUploadCount) {
-      if (guestRemaining === 0) {
-        setValidationError('You have 0 guest credits left. Sign in with Google for unlimited batch conversions.');
-        return;
-      }
       setValidationError(
-        `You have ${guestRemaining} credits left, but selected ${filesToUploadCount} files. Please reduce selection or Sign In.`
+        guestRemaining === 0
+          ? 'You have 0 guest credits remaining. Please sign in with Google for unlimited batch conversions.'
+          : `You have ${guestRemaining} credits left, but selected ${filesToUploadCount} files. Remove ${filesToUploadCount - guestRemaining} file(s) or sign in for unlimited conversions.`
       );
       return;
     }
 
+    setValidationError(null);
     setUploadProgress({
       state: 'uploading',
-      percentage: 5,
+      percentage: 1,
       errorMessage: null,
       uploadedMedia: null,
-      batchTotal: batchQueue.length,
-      batchCompleted: batchQueue.length - pendingItems.length,
+      batchTotal: filesToUploadCount,
+      batchCompleted: 0,
     });
 
     const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_user_id') || 'guest');
     const successfulItems: MediaItem[] = [];
+    const itemsQueue = [...pendingItems];
+    let completedCount = 0;
 
-    const uploadSingleItem = (item: BatchFileItem): Promise<MediaItem | null> => {
-      return new Promise((resolve) => {
+    const uploadSingleItem = (item: BatchFileItem): Promise<MediaItem | null> =>
+      new Promise((resolve) => {
+        let settled = false;
+        const finish = (result: MediaItem | null, errorMessage?: string) => {
+          if (settled) return;
+          settled = true;
+
+          if (result) {
+            const completedItem: MediaItem = {
+              ...result,
+              status: 'success',
+              lastAction: 'upload',
+              updatedAt: new Date().toISOString(),
+              lastActionAt: new Date().toISOString(),
+            };
+            setBatchQueue((prev) =>
+              prev.map((q) =>
+                q.id === item.id
+                  ? { ...q, status: 'completed', progress: 100, result: completedItem, error: undefined }
+                  : q
+              )
+            );
+            resolve(completedItem);
+            return;
+          }
+
+          const message = errorMessage || 'Upload failed for this file.';
+          setBatchQueue((prev) =>
+            prev.map((q) =>
+              q.id === item.id ? { ...q, status: 'error', progress: 0, error: message } : q
+            )
+          );
+
+          const ext = `.${item.name.split('.').pop() || ''}`.toLowerCase();
+          const mediaType = item.file.type.startsWith('video/')
+            ? 'video'
+            : item.file.type.startsWith('image/')
+              ? 'image'
+              : ['.mp4', '.mov', '.webm', '.mkv', '.m4v'].includes(ext)
+                ? 'video'
+                : ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico'].includes(ext)
+                  ? 'image'
+                  : 'audio';
+
+          onUploadError?.(
+            createHistoryErrorItem({
+              id: item.id,
+              originalName: item.name,
+              size: item.size,
+              mediaType,
+              mimeType: item.file.type || 'application/octet-stream',
+              error: message,
+              userId: effectiveUserId,
+            })
+          );
+          resolve(null);
+        };
+
         try {
           setBatchQueue((prev) =>
-            prev.map((q) => (q.id === item.id ? { ...q, status: 'uploading', progress: 10 } : q))
+            prev.map((q) => q.id === item.id ? { ...q, status: 'uploading', progress: 5 } : q)
           );
 
           const formData = new FormData();
@@ -325,157 +409,106 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/api/upload', true);
           xhr.setRequestHeader('x-user-id', effectiveUserId);
+          xhr.timeout = 120000;
 
-          xhr.upload.onprogress = (evt) => {
-            if (evt.lengthComputable) {
-              const p = Math.min(95, Math.round((evt.loaded / evt.total) * 90) + 10);
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const progress = Math.min(95, Math.round((event.loaded / event.total) * 90) + 5);
               setBatchQueue((prev) =>
-                prev.map((q) => (q.id === item.id ? { ...q, progress: p } : q))
+                prev.map((q) => q.id === item.id ? { ...q, progress } : q)
               );
             }
           };
 
           xhr.onload = () => {
+            let payload: unknown;
             try {
-              const raw = (xhr.responseText || '').trim();
-              if (!raw) {
-                setBatchQueue((prev) =>
-                  prev.map((q) =>
-                    q.id === item.id ? { ...q, status: 'error', progress: 0, error: `Empty response (${xhr.status})` } : q
-                  )
-                );
-                return resolve(null);
+              if (!xhr.responseText?.trim()) {
+                finish(null, `Server returned an empty response (HTTP ${xhr.status}).`);
+                return;
               }
-
-              let res: any = null;
-              try {
-                res = JSON.parse(raw);
-              } catch {
-                setBatchQueue((prev) =>
-                  prev.map((q) =>
-                    q.id === item.id
-                      ? { ...q, status: 'error', progress: 0, error: `Invalid response format (${xhr.status})` }
-                      : q
-                  )
-                );
-                return resolve(null);
-              }
-
-              if (xhr.status >= 200 && xhr.status < 300) {
-                const mediaItem: MediaItem | undefined = res?.item || (res?.items && res.items[0]);
-                if (mediaItem) {
-                  setBatchQueue((prev) =>
-                    prev.map((q) =>
-                      q.id === item.id
-                        ? { ...q, status: 'completed', progress: 100, result: mediaItem }
-                        : q
-                    )
-                  );
-                  return resolve(mediaItem);
-                } else {
-                  setBatchQueue((prev) =>
-                    prev.map((q) =>
-                      q.id === item.id ? { ...q, status: 'error', progress: 0, error: res?.error || 'No item returned.' } : q
-                    )
-                  );
-                  return resolve(null);
-                }
-              } else {
-                setBatchQueue((prev) =>
-                  prev.map((q) =>
-                    q.id === item.id ? { ...q, status: 'error', progress: 0, error: res?.error || `HTTP ${xhr.status}` } : q
-                  )
-                );
-                return resolve(null);
-              }
-            } catch (innerErr: any) {
-              setBatchQueue((prev) =>
-                prev.map((q) =>
-                  q.id === item.id ? { ...q, status: 'error', progress: 0, error: innerErr.message } : q
-                )
+              payload = JSON.parse(xhr.responseText);
+            } catch {
+              finish(
+                null,
+                xhr.status >= 400
+                  ? `Server returned invalid JSON for HTTP ${xhr.status}.`
+                  : 'Server returned malformed JSON. This file was not added to History.'
               );
-              return resolve(null);
+              return;
             }
+
+            if (xhr.status < 200 || xhr.status >= 300) {
+              finish(null, getApiErrorMessage(payload, `Upload failed with HTTP ${xhr.status}.`));
+              return;
+            }
+
+            const mediaItem = extractMediaItem(payload);
+            if (!mediaItem) {
+              finish(null, 'Server response was valid JSON but contained no valid media metadata.');
+              return;
+            }
+
+            finish(mediaItem);
           };
 
-          xhr.onerror = () => {
-            setBatchQueue((prev) =>
-              prev.map((q) =>
-                q.id === item.id ? { ...q, status: 'error', progress: 0, error: 'Network error occurred.' } : q
-              )
-            );
-            return resolve(null);
-          };
-
+          xhr.onerror = () => finish(null, 'Network error occurred while uploading this file.');
+          xhr.ontimeout = () => finish(null, 'This file upload timed out after 120 seconds.');
+          xhr.onabort = () => finish(null, 'This file upload was cancelled.');
           xhr.send(formData);
-        } catch (outerErr: any) {
-          setBatchQueue((prev) =>
-            prev.map((q) =>
-              q.id === item.id ? { ...q, status: 'error', progress: 0, error: outerErr.message } : q
-            )
-          );
-          resolve(null);
+        } catch (error: any) {
+          finish(null, error?.message || 'Unable to start this file upload.');
         }
       });
-    };
-
-    const CONCURRENCY_LIMIT = 2;
-    let completedCount = 0;
-    const itemsQueue = [...pendingItems];
 
     const worker = async () => {
-      while (itemsQueue.length > 0) {
-        const itemToUpload = itemsQueue.shift();
-        if (!itemToUpload) break;
+      while (true) {
+        const item = itemsQueue.shift();
+        if (!item) return;
 
-        const result = await uploadSingleItem(itemToUpload);
-        if (result) {
-          successfulItems.push(result);
-        }
-        completedCount++;
+        const result = await uploadSingleItem(item);
+        if (result) successfulItems.push(result);
 
-        const currentPercentage = Math.min(100, Math.round((completedCount / filesToUploadCount) * 100));
+        completedCount += 1;
         setUploadProgress((prev) => ({
           ...prev,
-          percentage: currentPercentage,
+          percentage: Math.round((completedCount / filesToUploadCount) * 100),
           batchCompleted: completedCount,
         }));
       }
     };
 
     const workers = Array.from(
-      { length: Math.min(CONCURRENCY_LIMIT, itemsQueue.length) },
+      { length: Math.min(2, itemsQueue.length) },
       () => worker()
     );
-
     await Promise.all(workers);
 
     if (successfulItems.length > 0) {
-      setBatchCompletedItems((prev) => [...prev, ...successfulItems]);
+      setBatchCompletedItems((prev) => {
+        const merged = new Map(prev.map((item) => [item.id, item]));
+        successfulItems.forEach((item) => merged.set(item.id, item));
+        return Array.from(merged.values());
+      });
       setUploadProgress({
         state: 'success',
         percentage: 100,
-        errorMessage: null,
+        errorMessage: successfulItems.length < filesToUploadCount
+          ? `${filesToUploadCount - successfulItems.length} file(s) failed. Successful files were added to History.`
+          : null,
         uploadedMedia: successfulItems[0],
         batchTotal: filesToUploadCount,
         batchCompleted: completedCount,
       });
-
-      try {
-        if (onBatchUploadSuccess) {
-          onBatchUploadSuccess(successfulItems);
-        } else {
-          onUploadSuccess(successfulItems[0]);
-        }
-      } catch (cbErr) {
-        console.error('Error invoking batch callback:', cbErr);
-      }
+      onBatchUploadSuccess?.(successfulItems);
     } else {
       setUploadProgress({
         state: 'error',
-        percentage: 0,
-        errorMessage: 'All uploads in the batch failed. Please verify files and retry.',
+        percentage: 100,
+        errorMessage: 'All uploads in the batch failed. Each failure was recorded in History.',
         uploadedMedia: null,
+        batchTotal: filesToUploadCount,
+        batchCompleted: completedCount,
       });
     }
   };
@@ -503,6 +536,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       if (e.dataTransfer.files.length === 1 && uploadMode === 'single') {
         handleSingleFileSelection(e.dataTransfer.files[0]);
       } else {
+        // Multi-file drop: automatically switch to batch mode
         handleAddFilesToBatch(e.dataTransfer.files);
       }
     }
@@ -603,6 +637,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Category selector pill tabs & Quota callout */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-200/70 rounded-xl">
           <button
@@ -610,7 +645,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             onClick={() => setActiveMediaFilter('all')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               activeMediaFilter === 'all'
-                ? 'bg-white text-slate-900 shadow-xs'
+                ? 'bg-white text-slate-900 shadow-xs scale-102'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
@@ -622,7 +657,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             onClick={() => setActiveMediaFilter('audio')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               activeMediaFilter === 'audio'
-                ? 'bg-white text-slate-900 shadow-xs'
+                ? 'bg-white text-slate-900 shadow-xs scale-102'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
@@ -634,7 +669,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             onClick={() => setActiveMediaFilter('video')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               activeMediaFilter === 'video'
-                ? 'bg-white text-slate-900 shadow-xs'
+                ? 'bg-white text-slate-900 shadow-xs scale-102'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
@@ -646,7 +681,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             onClick={() => setActiveMediaFilter('image')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               activeMediaFilter === 'image'
-                ? 'bg-white text-slate-900 shadow-xs'
+                ? 'bg-white text-slate-900 shadow-xs scale-102'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
@@ -655,6 +690,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           </button>
         </div>
 
+        {/* Upload Mode Switcher (Single vs Batch) */}
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
             <button
@@ -693,6 +729,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             </button>
           </div>
 
+          {/* User Quota Status Text */}
           <div className="text-xs">
             {user ? (
               <span className="text-emerald-700 font-semibold flex items-center gap-1">
@@ -712,6 +749,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         </div>
       </div>
 
+      {/* Quota Exhausted Banner */}
       {isQuotaExhausted && (
         <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-2xs animate-in fade-in">
           <div className="flex items-start gap-3">
@@ -719,7 +757,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             <div>
               <p className="text-xs font-bold text-amber-900">Monthly Guest Limit Reached (0/30 Remaining)</p>
               <p className="text-xs text-amber-700 mt-0.5">
-                Sign in with Google for unlimited batch conversions and persistent cloud history!
+                Sign in with Google to get <strong>unlimited batch & single conversions</strong> and persistent cloud history!
               </p>
             </div>
           </div>
@@ -727,13 +765,36 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             type="button"
             disabled={isSigningIn}
             onClick={onSignIn}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0 flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0 flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            {isSigningIn ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" /> : <span>Sign In for Unlimited</span>}
+            {isSigningIn ? (
+              <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
+            ) : (
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                />
+              </svg>
+            )}
+            <span>{isSigningIn ? 'Connecting...' : 'Sign In for Unlimited'}</span>
           </button>
         </div>
       )}
 
+      {/* Main Upload Dropzone Container */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -746,6 +807,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             : 'border-slate-300 hover:border-slate-400 bg-white'
         }`}
       >
+        {/* Hidden File Input for Single Mode */}
         <input
           ref={fileInputRef}
           type="file"
@@ -763,6 +825,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           }}
         />
 
+        {/* Hidden File Input for Batch Mode */}
         <input
           ref={batchFileInputRef}
           type="file"
@@ -778,6 +841,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         />
 
         <div className="max-w-xl mx-auto flex flex-col items-center">
+          {/* Animated Main Icon Indicator */}
           <div className="relative mb-4 group">
             {isUploading && (
               <span className="absolute -inset-2 rounded-full bg-emerald-400/30 animate-ping" />
@@ -813,21 +877,26 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             {isQuotaExhausted
               ? 'You have used your 30 free guest conversions for this month. Sign in with Google for unlimited batch uploads.'
               : uploadMode === 'batch'
-              ? `Select multiple files (audio, video, images) to convert simultaneously. ${
-                  !user ? `Guest allowance: ${guestRemaining}/30 left.` : 'Unlimited Pro batch upload active.'
+              ? `Select multiple files (audio, video, images) to convert all at once. ${
+                  !user ? `Guest allowance: ${guestRemaining}/30 remaining.` : 'Unlimited Pro batch upload active.'
                 }`
               : 'Upload MP3, WAV, M4A, OGG, MP4, MOV, WEBM, PNG, JPG, or AVIF. Generates permanent streamable URLs.'}
           </p>
 
+          {/* Interactive Action Buttons */}
           <div className="flex flex-wrap items-center justify-center gap-3">
             {isQuotaExhausted ? (
               <button
                 type="button"
                 disabled={isSigningIn}
                 onClick={onSignIn}
-                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-xs transition-all inline-flex items-center gap-2 cursor-pointer"
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-xs transition-all inline-flex items-center gap-2 disabled:opacity-50"
               >
-                <Sparkles className="w-4 h-4 text-emerald-400" />
+                {isSigningIn ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                )}
                 <span>Sign in with Google to Continue</span>
               </button>
             ) : uploadMode === 'single' ? (
@@ -836,7 +905,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                   type="button"
                   disabled={isUploading || isRecording || isProcessingAudio}
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 inline-flex items-center gap-2 cursor-pointer active:scale-98"
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 inline-flex items-center gap-2 cursor-pointer hover:shadow-md active:scale-98"
                 >
                   <UploadCloud className="w-4 h-4" />
                   <span>Browse Media File</span>
@@ -869,7 +938,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                   <button
                     type="button"
                     onClick={stopRecording}
-                    className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-xl transition-all inline-flex items-center gap-2 animate-pulse shadow-sm cursor-pointer"
+                    className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-xl transition-all inline-flex items-center gap-2 animate-pulse shadow-sm"
                   >
                     <Square className="w-3.5 h-3.5 fill-current" />
                     <span>Stop & Upload ({recordSeconds}s)</span>
@@ -877,6 +946,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                 )}
               </>
             ) : (
+              /* Batch Mode Action Buttons */
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <button
                   type="button"
@@ -895,8 +965,16 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                     onClick={startBatchUpload}
                     className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl shadow-xs transition-all disabled:opacity-50 inline-flex items-center gap-2 cursor-pointer active:scale-98"
                   >
-                    {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Files className="w-4 h-4" />}
-                    <span>{isUploading ? 'Converting Batch...' : `Upload All (${batchQueue.length} files)`}</span>
+                    {isUploading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Files className="w-4 h-4" />
+                    )}
+                    <span>
+                      {isUploading
+                        ? 'Converting Batch...'
+                        : `Upload All (${batchQueue.length} files)`}
+                    </span>
                   </button>
                 )}
 
@@ -904,7 +982,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                   <button
                     type="button"
                     onClick={clearBatchQueue}
-                    className="px-3.5 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                    className="px-3.5 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
                   >
                     Clear Queue
                   </button>
@@ -913,6 +991,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             )}
           </div>
 
+          {/* Batch Queue File List */}
           {uploadMode === 'batch' && batchQueue.length > 0 && (
             <div className="w-full mt-6 bg-slate-50 border border-slate-200 rounded-xl p-3 sm:p-4 text-left animate-in fade-in duration-200">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 text-xs text-slate-600 font-semibold">
@@ -920,7 +999,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                   <span>Queue ({batchQueue.length} files)</span>
                   {!user && (
                     <span className="font-mono text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      Consumes {Math.min(batchQueue.length, guestRemaining)}/{guestRemaining} credits
+                      Consumes {Math.min(batchQueue.length, guestRemaining)}/{guestRemaining} remaining guest credits
                     </span>
                   )}
                 </div>
@@ -961,7 +1040,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                         </span>
                       )}
                       {item.status === 'error' && (
-                        <span className="text-[11px] font-semibold text-rose-600" title={item.error}>
+                        <span className="text-[11px] font-semibold text-rose-600">
                           Failed
                         </span>
                       )}
@@ -969,7 +1048,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                         <button
                           type="button"
                           onClick={() => removeBatchItem(item.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded-md transition-colors"
                           title="Remove file"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -982,6 +1061,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             </div>
           )}
 
+          {/* Batch Completed Summary & Quick Action Card */}
           {batchCompletedItems.length > 0 && (
             <div className="w-full mt-6 bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-left animate-in fade-in duration-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-emerald-200/80">
@@ -1001,7 +1081,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                   <button
                     type="button"
                     onClick={copyAllBatchLinks}
-                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg shadow-2xs transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg shadow-2xs transition-all inline-flex items-center gap-1.5"
                   >
                     {copiedAllBatch ? (
                       <>
@@ -1019,7 +1099,8 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                   <button
                     type="button"
                     onClick={downloadBatchUrlList}
-                    className="px-2.5 py-1.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 text-xs font-medium rounded-lg transition-colors inline-flex items-center gap-1 cursor-pointer"
+                    className="px-2.5 py-1.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 text-xs font-medium rounded-lg transition-colors inline-flex items-center gap-1"
+                    title="Export list as text file"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Export</span>
@@ -1027,6 +1108,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                 </div>
               </div>
 
+              {/* Item List with individual copy buttons */}
               <div className="mt-3 max-h-48 overflow-y-auto space-y-1.5 pr-1">
                 {batchCompletedItems.map((item) => (
                   <div
@@ -1044,7 +1126,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                       <button
                         type="button"
                         onClick={() => copyItemLink(item.directUrl, item.id)}
-                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium rounded-md transition-colors flex items-center gap-1"
                       >
                         {copiedItemId === item.id ? (
                           <>
@@ -1063,6 +1145,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-slate-400 hover:text-slate-700 rounded-md transition-colors"
+                        title="Open direct URL"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
@@ -1073,6 +1156,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             </div>
           )}
 
+          {/* Upload Progress Bar (Animated) */}
           {isUploading && (
             <div className="w-full mt-6 space-y-2 animate-in fade-in">
               <div className="flex justify-between text-xs text-slate-600">
@@ -1088,13 +1172,16 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
               </div>
               <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200/60">
                 <div
-                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-200 ease-out"
+                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-200 ease-out relative overflow-hidden"
                   style={{ width: `${uploadProgress.percentage}%` }}
-                />
+                >
+                  <span className="absolute inset-0 bg-white/20 animate-[pulse_1s_ease-in-out_infinite]" />
+                </div>
               </div>
             </div>
           )}
 
+          {/* Validation Error Message */}
           {validationError && (
             <div className="w-full mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-left text-xs text-rose-800 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -1105,13 +1192,14 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
               <button
                 type="button"
                 onClick={() => setValidationError(null)}
-                className="text-rose-400 hover:text-rose-700 font-bold cursor-pointer"
+                className="text-rose-400 hover:text-rose-700 font-bold"
               >
                 ✕
               </button>
             </div>
           )}
 
+          {/* Server Error Message */}
           {uploadProgress.state === 'error' && uploadProgress.errorMessage && (
             <div className="w-full mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-left text-xs text-rose-800 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -1122,7 +1210,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
               <button
                 type="button"
                 onClick={() => setUploadProgress((p) => ({ ...p, state: 'idle', errorMessage: null }))}
-                className="text-rose-400 hover:text-rose-700 font-bold cursor-pointer"
+                className="text-rose-400 hover:text-rose-700 font-bold"
               >
                 ✕
               </button>

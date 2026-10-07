@@ -41,40 +41,74 @@ export interface MediaItem {
   views?: number;
   plays?: number;
   downloads?: number;
+  updatedAt?: string;
+  status?: 'uploading' | 'processing' | 'success' | 'error' | 'delete_error';
+  error?: string;
+  lastAction?: 'upload' | 'conversion' | 'preview' | 'copy' | 'play' | 'download' | 'delete' | 'error';
+  lastActionAt?: string;
 }
 
 let mediaRegistry: Record<string, MediaItem> = {};
 
 function loadRegistry(): void {
   try {
-    if (fs.existsSync(METADATA_FILE)) {
-      const data = fs.readFileSync(METADATA_FILE, 'utf-8');
-      mediaRegistry = JSON.parse(data);
-      let modified = false;
-      for (const [id, item] of Object.entries(mediaRegistry)) {
-        const itemPath = path.join(UPLOADS_DIR, item.filename);
-        if (!fs.existsSync(itemPath)) {
+    mediaRegistry = fs.existsSync(METADATA_FILE)
+      ? JSON.parse(fs.readFileSync(METADATA_FILE, 'utf-8'))
+      : {};
+
+    let modified = false;
+    for (const [id, item] of Object.entries(mediaRegistry)) {
+      const itemPath = path.join(UPLOADS_DIR, item.filename);
+      if (!fs.existsSync(itemPath)) {
+        delete mediaRegistry[id];
+        modified = true;
+        continue;
+      }
+
+      try {
+        if (fs.statSync(itemPath).size < 32) {
+          fs.unlinkSync(itemPath);
           delete mediaRegistry[id];
           modified = true;
-        } else {
-          try {
-            const stat = fs.statSync(itemPath);
-            if (stat.size < 32) {
-              fs.unlinkSync(itemPath);
-              delete mediaRegistry[id];
-              modified = true;
-            }
-          } catch {
-            delete mediaRegistry[id];
-            modified = true;
-          }
         }
+      } catch {
+        delete mediaRegistry[id];
+        modified = true;
       }
-      if (modified) saveRegistry();
-    } else {
-      mediaRegistry = {};
-      saveRegistry();
     }
+
+    // Recover valid media files if metadata was lost or partially written.
+    // This prevents stale metadata from causing permanent 404s after a restart.
+    const registeredFiles = new Set(Object.values(mediaRegistry).map((item) => item.filename));
+    for (const filename of fs.readdirSync(UPLOADS_DIR)) {
+      if (filename === 'metadata.json' || registeredFiles.has(filename)) continue;
+      const filePath = path.join(UPLOADS_DIR, filename);
+      if (!fs.statSync(filePath).isFile() || fs.statSync(filePath).size < 32) continue;
+
+      const ext = path.extname(filename).toLowerCase();
+      const fileId = path.parse(filename).name;
+      const stat = fs.statSync(filePath);
+      const mimeType = inferMimeType(ext);
+      mediaRegistry[fileId] = {
+        id: fileId,
+        originalName: filename,
+        filename,
+        mediaType: detectMediaType(ext, mimeType),
+        mimeType,
+        size: stat.size,
+        createdAt: stat.birthtime.toISOString(),
+        updatedAt: stat.mtime.toISOString(),
+        status: 'success',
+        userId: 'guest',
+        folder: 'public',
+        views: 0,
+        plays: 0,
+        downloads: 0,
+      };
+      modified = true;
+    }
+
+    if (modified || !fs.existsSync(METADATA_FILE)) saveRegistry();
   } catch (err) {
     console.error('Error loading media registry:', err);
     mediaRegistry = {};
@@ -83,18 +117,13 @@ function loadRegistry(): void {
 
 function saveRegistry(): void {
   try {
-    const tempFile = `${METADATA_FILE}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    fs.writeFileSync(tempFile, JSON.stringify(mediaRegistry, null, 2), 'utf-8');
-    fs.renameSync(tempFile, METADATA_FILE);
+    fs.writeFileSync(METADATA_FILE, JSON.stringify(mediaRegistry, null, 2), 'utf-8');
   } catch (err) {
-    try {
-      fs.writeFileSync(METADATA_FILE, JSON.stringify(mediaRegistry, null, 2), 'utf-8');
-    } catch (fallbackErr) {
-      console.error('Error saving media registry:', fallbackErr);
-    }
+    console.error('Error saving media registry:', err);
   }
 }
 
+// Load registry (clean start, zero sample files)
 loadRegistry();
 
 function detectMediaType(ext: string, mime?: string): MediaType {
@@ -148,6 +177,7 @@ const storage = multer.diskStorage({
     const customSlug = (req.body?.customSlug || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
 
     if (customSlug) {
+      // Use custom slug if provided
       const finalName = `${customSlug}${ext}`;
       if (!fs.existsSync(path.join(UPLOADS_DIR, finalName))) {
         return cb(null, finalName);
@@ -196,6 +226,7 @@ function streamMediaFile(
   const fileSize = stat.size;
   const range = req.headers.range;
 
+  // Set permissive CORS and stream headers for audio/video HTML5 players
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, Authorization, x-user-id');
@@ -248,6 +279,107 @@ function getBaseUrl(req: express.Request): string {
   return `${protocol}://${host}`;
 }
 
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] || char));
+}
+
+function buildSeoDocument(template: string, req: express.Request): string {
+  const baseUrl = getBaseUrl(req);
+  const mediaId = typeof req.query.view === 'string'
+    ? req.query.view
+    : typeof req.query.play === 'string'
+      ? req.query.play
+      : typeof req.query.audio === 'string'
+        ? req.query.audio
+        : null;
+  const tab = typeof req.query.tab === 'string' ? req.query.tab : '';
+
+  let title = 'AudioLink — Direct Media URLs';
+  let description = 'Turn audio, video, and image files into direct, browser-ready URLs with fast streaming, playback, and sharing.';
+  let robots = 'index, follow';
+  let canonical = `${baseUrl}/`;
+  let ogImage = `${baseUrl}/og-image.svg`;
+
+  if (mediaId && mediaRegistry[mediaId]) {
+    const item = mediaRegistry[mediaId];
+    title = `${item.originalName} — AudioLink`;
+    description = `Stream or share ${item.originalName} with AudioLink's direct media player.`;
+    robots = 'noindex, nofollow, noarchive';
+    canonical = `${baseUrl}/?view=${encodeURIComponent(mediaId)}`;
+    if (item.mediaType === 'image') ogImage = `${baseUrl}/media/${encodeURIComponent(item.filename)}`;
+  } else if (tab === 'upload' || tab === 'history') {
+    title = tab === 'upload' ? 'Media Studio — AudioLink' : 'History — AudioLink';
+    description = tab === 'upload'
+      ? 'Upload audio, video, and image files and generate direct URLs for browser playback and sharing.'
+      : 'Private AudioLink media history and management.';
+    robots = 'noindex, nofollow, noarchive';
+  }
+
+  const tags = `
+    <meta name="robots" content="${escapeHtml(robots)}" />
+    <meta name="googlebot" content="${escapeHtml(robots)}" />
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="AudioLink" />
+    <meta property="og:url" content="${escapeHtml(canonical)}" />
+    <meta property="og:image" content="${escapeHtml(ogImage)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${escapeHtml(ogImage)}" />
+    <link rel="canonical" href="${escapeHtml(canonical)}" />`;
+
+  return template
+    .replace(/<title>.*?<\/title>/is, `<title>${escapeHtml(title)}</title>`)
+    .replace(/<meta name="description"[^>]*>/i, '')
+    .replace(/<meta name="robots"[^>]*>/i, '')
+    .replace(/<meta name="googlebot"[^>]*>/i, '')
+    .replace(/<link rel="canonical"[^>]*>/i, '')
+    .replace(/<meta property="og:[^>]*>/gi, '')
+    .replace(/<meta name="twitter:[^>]*>/gi, '')
+    .replace('</head>', `${tags}\n  </head>`);
+}
+
+function getPublicRobots(req: express.Request): string {
+  const baseUrl = getBaseUrl(req);
+  return [
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /api/',
+    'Disallow: /media/',
+    'Disallow: /uploads/',
+    'Disallow: /*?view=',
+    'Disallow: /*?play=',
+    'Disallow: /*?audio=',
+    '',
+    `Sitemap: ${baseUrl}/sitemap.xml`,
+    '',
+  ].join('\n');
+}
+
+function getPublicSitemap(req: express.Request): string {
+  const baseUrl = getBaseUrl(req);
+  const lastmod = new Date().toISOString().slice(0, 10);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${escapeHtml(baseUrl)}/</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>`;
+}
+
 async function startServer() {
   const app = express();
 
@@ -265,10 +397,17 @@ async function startServer() {
     res.json({ status: 'healthy', timestamp: new Date().toISOString() });
   });
 
+  app.get('/robots.txt', (req, res) => {
+    res.type('text/plain').set('X-Robots-Tag', 'noindex').send(getPublicRobots(req));
+  });
+
+  app.get('/sitemap.xml', (req, res) => {
+    res.type('application/xml').set('X-Robots-Tag', 'noindex').send(getPublicSitemap(req));
+  });
+
+  // Upload single or multiple media
   app.post('/api/upload', (req, res) => {
     upload.any()(req, res, (err: any) => {
-      res.setHeader('Content-Type', 'application/json');
-
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({ success: false, error: 'File size exceeds 100MB limit.' });
@@ -306,6 +445,10 @@ async function startServer() {
           mimeType,
           size: file.size,
           createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          status: 'success',
+          lastAction: 'upload',
+          lastActionAt: new Date().toISOString(),
           userId,
           folder,
           customSlug,
@@ -348,8 +491,82 @@ async function startServer() {
     });
   });
 
+  // Upload bulk media files (Batch Upload feature for guests and pro users)
+  app.post('/api/upload-bulk', (req, res) => {
+    upload.any()(req, res, (err: any) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ success: false, error: 'One or more files exceed the 100MB size limit.' });
+        }
+        return res.status(400).json({ success: false, error: `Batch upload error: ${err.message}` });
+      } else if (err) {
+        return res.status(400).json({ success: false, error: err.message || 'Failed to upload files.' });
+      }
+
+      const files = req.files as Express.Multer.File[] | undefined;
+      if (!files || files.length === 0) {
+        return res.status(400).json({ success: false, error: 'No files provided for bulk upload.' });
+      }
+
+      const baseUrl = getBaseUrl(req);
+      const userId = (req.headers['x-user-id'] as string) || (req.body?.userId as string) || 'guest';
+      const folder = (req.body?.folder as string) || 'public';
+      const expiresAt = (req.body?.expiresAt as string) || undefined;
+
+      const results: MediaItem[] = [];
+
+      for (const file of files) {
+        const ext = path.extname(file.filename);
+        const fileId = path.parse(file.filename).name;
+        const mediaType = detectMediaType(ext, file.mimetype);
+        const mimeType = inferMimeType(ext, file.mimetype);
+
+        const mediaItem: MediaItem = {
+          id: fileId,
+          originalName: file.originalname,
+          filename: file.filename,
+          mediaType,
+          mimeType,
+          size: file.size,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          status: 'success',
+          lastAction: 'upload',
+          lastActionAt: new Date().toISOString(),
+          userId,
+          folder,
+          expiresAt,
+          views: 0,
+          plays: 0,
+          downloads: 0,
+        };
+
+        mediaRegistry[fileId] = mediaItem;
+
+        const directUrl = `${baseUrl}/media/${file.filename}`;
+        const playerUrl = `${baseUrl}/?view=${fileId}`;
+
+        results.push({
+          ...mediaItem,
+          directUrl,
+          directAudioUrl: directUrl,
+          playerUrl,
+        });
+      }
+
+      saveRegistry();
+
+      return res.status(201).json({
+        success: true,
+        item: results[0],
+        items: results,
+        count: results.length,
+      });
+    });
+  });
+
+  // Query media list with optional user isolation
   app.get('/api/media', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
     const baseUrl = getBaseUrl(req);
     const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
     const typeFilter = req.query.type as string;
@@ -383,8 +600,27 @@ async function startServer() {
     res.json({ items: formatted });
   });
 
+  // Backward compatible route
+  app.get('/api/audios', (req, res) => {
+    const baseUrl = getBaseUrl(req);
+    const items = Object.values(mediaRegistry)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map((item) => {
+        const directUrl = `${baseUrl}/media/${item.filename}`;
+        return {
+          ...item,
+          password: undefined,
+          directUrl,
+          directAudioUrl: directUrl,
+          playerUrl: `${baseUrl}/?view=${item.id}`,
+        };
+      });
+
+    res.json({ items });
+  });
+
+  // Single media metadata
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
     const id = req.params.id;
     const item = mediaRegistry[id];
 
@@ -392,6 +628,7 @@ async function startServer() {
       return res.status(404).json({ error: 'Media not found' });
     }
 
+    // Check expiration
     if (item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) {
       return res.status(410).json({ error: 'This media link has expired.' });
     }
@@ -410,16 +647,23 @@ async function startServer() {
     });
   });
 
+  // Direct media stream route
   app.get('/media/:filename', (req, res) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
     const filename = req.params.filename;
+    if (path.basename(filename) !== filename) {
+      return res.status(400).json({ error: 'Invalid media filename.' });
+    }
     const fileId = path.parse(filename).name;
     const item = mediaRegistry[fileId] || Object.values(mediaRegistry).find((m) => m.filename === filename);
 
     if (item) {
+      // Check expiration
       if (item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) {
         return res.status(410).send('This media link has expired.');
       }
 
+      // Check password if set
       if (item.password) {
         const providedPass = req.headers['x-media-password'] || req.query.pwd;
         if (providedPass !== item.password) {
@@ -427,10 +671,9 @@ async function startServer() {
         }
       }
 
+      // Increment analytics view count
       item.views = (item.views || 0) + 1;
-      if (item.mediaType === 'audio' || item.mediaType === 'video') {
-        item.plays = (item.plays || 0) + 1;
-      }
+      item.updatedAt = new Date().toISOString();
       saveRegistry();
     }
 
@@ -444,6 +687,19 @@ async function startServer() {
     streamMediaFile(req, res, filePath, mimeType);
   });
 
+  // Backward compatibility alias routes
+  app.get(['/audio/:filename', '/file/:filename'], (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    const ext = path.extname(filename);
+    const mimeType = inferMimeType(ext);
+    streamMediaFile(req, res, filePath, mimeType);
+  });
+
+  // Download endpoint with download counter
   app.get(['/api/media/:id/download', '/api/audio/:id/download'], (req, res) => {
     const id = req.params.id;
     const item = mediaRegistry[id];
@@ -463,13 +719,46 @@ async function startServer() {
     streamMediaFile(req, res, filePath, item.mimeType, item.originalName);
   });
 
+  // Persist explicit client actions so History reflects previews, copies, and plays.
+  app.post('/api/media/:id/action', (req, res) => {
+    const id = req.params.id;
+    const item = mediaRegistry[id];
+    if (!item) return res.status(404).json({ success: false, error: 'Media not found.' });
+
+    const allowedActions = new Set(['preview', 'copy', 'play', 'download']);
+    const action = typeof req.body?.action === 'string' ? req.body.action : '';
+    if (!allowedActions.has(action)) {
+      return res.status(400).json({ success: false, error: 'Invalid media action.' });
+    }
+
+    const actor = (req.headers['x-user-id'] as string) || 'guest';
+    if (item.userId && item.userId !== 'guest' && item.userId !== actor) {
+      return res.status(403).json({ success: false, error: 'You do not own this media record.' });
+    }
+
+    const now = new Date().toISOString();
+    item.lastAction = action as MediaItem['lastAction'];
+    item.lastActionAt = now;
+    item.updatedAt = now;
+    if (action === 'play') item.plays = (item.plays || 0) + 1;
+    if (action === 'download') item.downloads = (item.downloads || 0) + 1;
+    saveRegistry();
+
+    return res.json({ success: true, item });
+  });
+
+  // Delete media endpoint
   app.delete(['/api/media/:id', '/api/audio/:id'], (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
     const id = req.params.id;
     const item = mediaRegistry[id];
 
     if (!item) {
       return res.status(404).json({ error: 'Media not found' });
+    }
+
+    const actor = (req.headers['x-user-id'] as string) || 'guest';
+    if (item.userId && item.userId !== 'guest' && item.userId !== actor) {
+      return res.status(403).json({ success: false, error: 'You do not own this media record.' });
     }
 
     const filePath = path.join(UPLOADS_DIR, item.filename);
@@ -487,15 +776,15 @@ async function startServer() {
     return res.json({ success: true, message: 'Media deleted successfully' });
   });
 
+  // Catch-all for undefined /api routes so they return JSON, never HTML
   app.all('/api/*', (_req, res) => {
-    res.setHeader('Content-Type', 'application/json');
     res.status(404).json({ success: false, error: 'API endpoint not found.' });
   });
 
+  // Express error handler for unhandled errors
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('Express caught error:', err);
     const status = err.status || (err.name === 'MulterError' ? 400 : 500);
-    res.setHeader('Content-Type', 'application/json');
     res.status(status).json({
       success: false,
       error: err.message || 'An unexpected error occurred during processing.',
@@ -503,9 +792,14 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    app.use(express.static(path.resolve(__dirname, 'dist'), {
+      index: false,
+      maxAge: '1h',
+    }));
+    app.get('*', (req, res) => {
+      const indexPath = path.resolve(__dirname, 'dist', 'index.html');
+      const template = fs.readFileSync(indexPath, 'utf8');
+      res.type('html').send(buildSeoDocument(template, req));
     });
   } else {
     const vite = await createViteServer({

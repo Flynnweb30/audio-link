@@ -1,20 +1,41 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# AudioLink Media Service
 
-# Run and deploy your AI Studio app
+AudioLink converts audio, video, and image uploads into direct browser-ready URLs. The production service is an Express + Vite SPA with Firebase Authentication/Firestore history and persistent Render storage.
 
-This contains everything you need to run your app locally.
+## Local development
 
-View your app in AI Studio: https://ai.studio/apps/a2119823-6981-41b6-be5b-2b989f7aecb3
+```bash
+npm install --no-audit --no-fund
+cp .env.example .env
+npm run dev
+```
 
-## Run Locally
+## Verification
 
-**Prerequisites:**  Node.js
+```bash
+npm run lint
+npm test
+npm run build
+```
 
+## Render production
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Use a **Node Web Service** backed by a **paid persistent disk** because uploaded media and `metadata.json` must survive restarts and deploys.
+
+- Build: `npm install --no-audit --no-fund && npm run lint && npm test && npm run build`
+- Start: `npm start`
+- Health: `/healthz`
+- Persistent data: `/var/data/uploads`
+- `APP_URL`: the final public HTTPS origin
+
+The application dynamically serves `/robots.txt` and `/sitemap.xml`, injects request-aware canonical/robots/Open Graph tags into production HTML, and keeps Studio/History/player URLs out of indexing.
+
+## Firebase
+
+Deploy the checked-in rules with:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+Firestore history is private to the authenticated owner under `users/{uid}/media/{mediaId}`.

@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /media/
+Disallow: /uploads/
+Disallow: /*?view=
+Disallow: /*?play=
+Disallow: /*?audio=
+
+Sitemap: https://audiolink-media-service.onrender.com/sitemap.xml

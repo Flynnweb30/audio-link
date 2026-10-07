@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0f172a"/>
+  <circle cx="120" cy="120" r="54" fill="#10b981"/>
+  <path d="M120 84v72M84 120h72" stroke="#fff" stroke-width="12" stroke-linecap="round"/>
+  <text x="120" y="300" fill="#fff" font-family="Arial, sans-serif" font-size="72" font-weight="700">AudioLink</text>
+  <text x="120" y="370" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="34">Direct media URLs for audio, video &amp; images</text>
+  <text x="120" y="435" fill="#6ee7b7" font-family="Arial, sans-serif" font-size="26">Fast streaming • Browser playback • Simple sharing</text>
+</svg>
