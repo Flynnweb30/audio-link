@@ -6,24 +6,57 @@ import {
   VolumeX, 
   Copy, 
   Check, 
-  ExternalLink, 
   Download, 
-  ArrowLeft, 
   Radio, 
   Music, 
   Video, 
   Image as ImageIcon, 
   Loader2, 
   AlertCircle, 
-  X 
+  X,
+  RotateCcw 
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatFileSize, formatDuration, copyToClipboard } from '../utils/formatters';
+import { fetchRecordFromFirestore } from '../firebase/syncService';
 
 interface SharePlayerViewProps {
   mediaId: string;
   onBackToHome: () => void;
 }
+
+const BUILTIN_SAMPLES: Record<string, MediaItem> = {
+  sample_lofi_beat: {
+    id: 'sample_lofi_beat',
+    originalName: 'Lofi Chill Acoustic (Sample).mp3',
+    filename: 'sample_lofi_beat.mp3',
+    mediaType: 'audio',
+    mimeType: 'audio/mpeg',
+    size: 2450000,
+    createdAt: new Date().toISOString(),
+    duration: 65,
+    userId: 'system',
+    isGuest: false,
+    directUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
+    playerUrl: '/?view=sample_lofi_beat',
+    storageUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
+  },
+  sample_nature_ambience: {
+    id: 'sample_nature_ambience',
+    originalName: 'Forest Birds Ambience (Sample).mp3',
+    filename: 'sample_nature_ambience.mp3',
+    mediaType: 'audio',
+    mimeType: 'audio/mpeg',
+    size: 1820000,
+    createdAt: new Date().toISOString(),
+    duration: 42,
+    userId: 'system',
+    isGuest: false,
+    directUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
+    playerUrl: '/?view=sample_nature_ambience',
+    storageUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
+  }
+};
 
 export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   mediaId,
@@ -40,43 +73,65 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadMedia = async () => {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/media/${encodeURIComponent(mediaId)}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(res.status === 404 ? 'Media not found' : 'Failed to load media');
-        return res.json();
-      })
-      .then((data) => {
-        if (isMounted) {
-          const media = data?.item;
-          if (media) {
-            setItem(media);
-            setDuration(Number(media?.duration ?? media?.metadata?.duration ?? 0));
-          } else {
-            setError('Media file information is unavailable.');
-          }
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (isMounted) {
-          setError(err?.message || 'Error retrieving media.');
-          setLoading(false);
-        }
-      });
+    // 1. Check built-in samples
+    if (BUILTIN_SAMPLES[mediaId]) {
+      const sampleItem = BUILTIN_SAMPLES[mediaId];
+      setItem(sampleItem);
+      setDuration(sampleItem.duration || 60);
+      setLoading(false);
+      return;
+    }
 
-    return () => {
-      isMounted = false;
-    };
+    // 2. Fetch from backend server API
+    try {
+      const res = await fetch(`/api/media/${encodeURIComponent(mediaId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.item) {
+          setItem(data.item);
+          setDuration(Number(data.item?.duration ?? data.item?.metadata?.duration ?? 0));
+          setLoading(false);
+          return;
+        }
+      }
+    } catch {}
+
+    // 3. Fallback Self-Healing: Query Firebase Firestore directly
+    try {
+      const firestoreRecord = await fetchRecordFromFirestore(mediaId);
+      if (firestoreRecord) {
+        setItem(firestoreRecord);
+        setDuration(Number(firestoreRecord?.duration ?? firestoreRecord?.metadata?.duration ?? 0));
+        setLoading(false);
+
+        // Sync with backend server registry so future requests find it instantly
+        fetch('/api/media/sync-records', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ records: [firestoreRecord] }),
+        }).catch(() => {});
+
+        return;
+      }
+    } catch {}
+
+    // 4. Truly not found
+    setError('Media not found');
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadMedia();
   }, [mediaId]);
 
   const handleCopy = async () => {
-    if (!item?.directUrl) return;
-    const ok = await copyToClipboard(item.directUrl);
+    const targetUrl = item?.directUrl || item?.storageUrl;
+    if (!targetUrl) return;
+    const ok = await copyToClipboard(targetUrl);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -91,7 +146,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     } else {
       audioRef.current.play().then(() => {
         setIsPlaying(true);
-      }).catch((e) => console.warn(e));
+      }).catch(() => {});
     }
   };
 
@@ -110,27 +165,36 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4">
           <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
           <h2 className="text-lg font-bold text-white">Media Link Unavailable</h2>
-          <p className="text-xs text-slate-400">{error || 'This media link does not exist or may have expired.'}</p>
-          <button
-            type="button"
-            onClick={onBackToHome}
-            className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-          >
-            Back to AudioLink Studio
-          </button>
+          <p className="text-xs text-slate-400">{error || 'Media not found'}</p>
+          <div className="flex flex-col gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onBackToHome}
+              className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+            >
+              Back to AudioLink Studio
+            </button>
+            <button
+              type="button"
+              onClick={loadMedia}
+              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Retry Link</span>
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const directUrl = item.directUrl || `/media/${item.filename}`;
+  const directUrl = item.directUrl || item.storageUrl || `/media/${item.filename}`;
   const isAudio = item.mediaType === 'audio';
   const isVideo = item.mediaType === 'video';
   const isImage = item.mediaType === 'image';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Standalone Player Top Bar */}
       <header className="border-b border-slate-800 bg-slate-900/80 px-4 sm:px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3 cursor-pointer" onClick={onBackToHome}>
           <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center text-slate-950 font-bold">
@@ -160,7 +224,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
         </div>
       </header>
 
-      {/* Main Player Display */}
       <main className="flex-1 max-w-2xl w-full mx-auto p-4 sm:p-8 flex flex-col justify-center">
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
           <div className="flex items-center gap-3">
@@ -245,9 +308,9 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
           <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3">
             <span className="text-xs text-slate-500 font-mono truncate select-all">{directUrl}</span>
             <a
-              href={`/api/media/${item.id}/download`}
+              href={item.storageUrl || `/api/media/${item.id}/download`}
               className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
-              download
+              download={item.originalName}
             >
               <Download className="w-3.5 h-3.5" />
               <span>Download</span>

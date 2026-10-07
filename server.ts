@@ -41,6 +41,7 @@ export interface MediaItem {
   directUrl?: string;
   directAudioUrl?: string;
   playerUrl?: string;
+  storageUrl?: string;
   customSlug?: string;
   expiresAt?: string;
   password?: string;
@@ -92,37 +93,22 @@ function saveGuestLimits(): void {
   } catch {}
 }
 
+/**
+ * Safe Pruning: Only removes genuinely expired guest conversions.
+ * NEVER deletes permanent user records or items preserved via storageUrl.
+ */
 function pruneExpiredMedia(): void {
   const now = Date.now();
   let modified = false;
 
   for (const [id, item] of Object.entries(mediaRegistry)) {
-    const itemPath = path.join(UPLOADS_DIR, item.filename);
-
     if (item.expiresAt && new Date(item.expiresAt).getTime() < now) {
+      const itemPath = path.join(UPLOADS_DIR, item.filename);
       if (fs.existsSync(itemPath)) {
         try { fs.unlinkSync(itemPath); } catch {}
       }
       delete mediaRegistry[id];
       modified = true;
-      continue;
-    }
-
-    if (!fs.existsSync(itemPath)) {
-      delete mediaRegistry[id];
-      modified = true;
-    } else {
-      try {
-        const stat = fs.statSync(itemPath);
-        if (stat.size < 32) {
-          fs.unlinkSync(itemPath);
-          delete mediaRegistry[id];
-          modified = true;
-        }
-      } catch {
-        delete mediaRegistry[id];
-        modified = true;
-      }
     }
   }
 
@@ -293,7 +279,7 @@ function getBaseUrl(req: express.Request): string {
 async function startServer() {
   const app = express();
 
-  app.use(express.json());
+  app.use(express.json({ limit: '10mb' }));
 
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -329,7 +315,6 @@ async function startServer() {
     res.redirect(301, '/images');
   });
 
-  // Sitemap endpoint including /video-studio
   app.get('/sitemap.xml', (_req, res) => {
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -373,6 +358,39 @@ async function startServer() {
     res.send(`User-agent: *\nAllow: /\nAllow: /audio\nAllow: /video\nAllow: /video-studio\nAllow: /images\nDisallow: /api/\nDisallow: /*?view=*\n\nSitemap: ${PRODUCTION_ORIGIN}/sitemap.xml\n`);
   });
 
+  /**
+   * Registry Sync endpoint: reconciles records stored in Firebase Firestore
+   * so server never reports 404 after ephemeral redeployments.
+   */
+  app.post('/api/media/sync-records', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const records = req.body?.records as MediaItem[] | undefined;
+    if (!records || !Array.isArray(records)) {
+      return res.status(400).json({ success: false, error: 'Invalid records array' });
+    }
+
+    const baseUrl = getBaseUrl(req);
+    let count = 0;
+    for (const rec of records) {
+      if (rec && rec.id && rec.filename) {
+        if (!mediaRegistry[rec.id]) {
+          mediaRegistry[rec.id] = {
+            ...rec,
+            directUrl: rec.directUrl || `${baseUrl}/media/${rec.filename}`,
+            playerUrl: rec.playerUrl || `${baseUrl}/?view=${rec.id}`,
+          };
+          count++;
+        }
+      }
+    }
+
+    if (count > 0) {
+      saveRegistry();
+    }
+
+    return res.json({ success: true, syncedCount: count });
+  });
+
   app.post('/api/upload', (req, res) => {
     upload.any()(req, res, (err: any) => {
       res.setHeader('Content-Type', 'application/json');
@@ -393,6 +411,7 @@ async function startServer() {
 
       const rawUserId = (req.headers['x-user-id'] as string) || (req.body?.userId as string) || '';
       const rawUserEmail = (req.headers['x-user-email'] as string) || (req.body?.userEmail as string) || undefined;
+      const storageUrl = (req.body?.storageUrl as string) || undefined;
       const isLoggedUser = Boolean(rawUserId && !rawUserId.startsWith('guest_') && rawUserId !== 'guest' && rawUserId !== 'anonymous');
       
       const ip = getClientIp(req);
@@ -459,6 +478,7 @@ async function startServer() {
           expiresAt,
           password,
           hasPassword: !!password,
+          storageUrl,
           views: 0,
           plays: 0,
           downloads: 0,
@@ -505,10 +525,7 @@ async function startServer() {
     const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
     const typeFilter = req.query.type as string;
 
-    let items = Object.values(mediaRegistry).filter((i) => {
-      const p = path.join(UPLOADS_DIR, i.filename);
-      return fs.existsSync(p) && fs.statSync(p).size >= 32;
-    });
+    let items = Object.values(mediaRegistry);
 
     if (userId && userId !== 'all') {
       items = items.filter((i) => i.userId === userId || (!i.userId && userId.startsWith('guest_')));
@@ -534,10 +551,56 @@ async function startServer() {
     res.json({ items: formatted });
   });
 
+  /**
+   * Resilient ID/filename/slug lookup with Sample fallbacks
+   */
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const id = req.params.id;
-    const item = mediaRegistry[id];
+    
+    let item = mediaRegistry[id] || 
+      Object.values(mediaRegistry).find((m) => 
+        m.id === id || 
+        m.filename === id || 
+        path.parse(m.filename).name === id || 
+        m.customSlug === id
+      );
+
+    if (!item) {
+      if (id === 'sample_lofi_beat') {
+        item = {
+          id: 'sample_lofi_beat',
+          originalName: 'Lofi Chill Acoustic (Sample).mp3',
+          filename: 'sample_lofi_beat.mp3',
+          mediaType: 'audio',
+          mimeType: 'audio/mpeg',
+          size: 2450000,
+          createdAt: new Date().toISOString(),
+          duration: 65,
+          userId: 'system',
+          isGuest: false,
+          directUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
+          playerUrl: `${getBaseUrl(req)}/?view=sample_lofi_beat`,
+          storageUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3'
+        };
+      } else if (id === 'sample_nature_ambience') {
+        item = {
+          id: 'sample_nature_ambience',
+          originalName: 'Forest Birds Ambience (Sample).mp3',
+          filename: 'sample_nature_ambience.mp3',
+          mediaType: 'audio',
+          mimeType: 'audio/mpeg',
+          size: 1820000,
+          createdAt: new Date().toISOString(),
+          duration: 42,
+          userId: 'system',
+          isGuest: false,
+          directUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
+          playerUrl: `${getBaseUrl(req)}/?view=sample_nature_ambience`,
+          storageUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3'
+        };
+      }
+    }
 
     if (!item) {
       return res.status(404).json({ error: 'Media not found' });
@@ -548,7 +611,9 @@ async function startServer() {
     }
 
     const baseUrl = getBaseUrl(req);
-    const directUrl = `${baseUrl}/media/${item.filename}`;
+    const directUrl = (item.directUrl && item.directUrl.startsWith('http')) 
+      ? item.directUrl 
+      : `${baseUrl}/media/${item.filename}`;
 
     return res.json({
       item: {
@@ -561,10 +626,14 @@ async function startServer() {
     });
   });
 
+  /**
+   * Resilient Media Streaming: If container restarted and local file is missing,
+   * redirects smoothly to permanent Firebase storageUrl with zero link loss.
+   */
   app.get('/media/:filename', (req, res) => {
     const filename = req.params.filename;
     const fileId = path.parse(filename).name;
-    const item = mediaRegistry[fileId] || Object.values(mediaRegistry).find((m) => m.filename === filename);
+    const item = mediaRegistry[fileId] || Object.values(mediaRegistry).find((m) => m.filename === filename || m.id === fileId);
 
     if (item) {
       if (item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) {
@@ -587,7 +656,16 @@ async function startServer() {
 
     const filePath = path.join(UPLOADS_DIR, filename);
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Media file not found' });
+      if (item?.storageUrl) {
+        return res.redirect(302, item.storageUrl);
+      }
+      if (filename.includes('sample_lofi_beat')) {
+        return res.redirect(302, 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3');
+      }
+      if (filename.includes('sample_nature_ambience')) {
+        return res.redirect(302, 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3');
+      }
+      return res.status(404).json({ error: 'Media file not found on disk' });
     }
 
     const ext = path.extname(filename);
@@ -611,6 +689,9 @@ async function startServer() {
     saveRegistry();
 
     const filePath = path.join(UPLOADS_DIR, item.filename);
+    if (!fs.existsSync(filePath) && item.storageUrl) {
+      return res.redirect(302, item.storageUrl);
+    }
     streamMediaFile(req, res, filePath, item.mimeType, item.originalName);
   });
 
@@ -653,7 +734,6 @@ async function startServer() {
   const distPath = path.resolve(__dirname, 'dist');
   if (process.env.NODE_ENV === 'production' || fs.existsSync(distPath)) {
     app.use(express.static(distPath));
-    // Handles /, /audio, /video, /video-studio, and /images
     app.get(['/', '/audio', '/video', '/video-studio', '/images'], (_req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });

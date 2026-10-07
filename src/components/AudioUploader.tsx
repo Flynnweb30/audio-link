@@ -23,6 +23,7 @@ import {
 import { User } from 'firebase/auth';
 import { MediaItem, UploadProgress, BatchFileItem } from '../types';
 import { formatFileSize, copyToClipboard } from '../utils/formatters';
+import { uploadBinaryToFirebaseStorage } from '../firebase/syncService';
 
 interface AudioUploaderProps {
   onUploadSuccess: (item: MediaItem) => void;
@@ -111,7 +112,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return `"${file.name}" (${formatFileSize(file.size)}) exceeds the 100MB limit.`;
+      return `"${file.name}" (${formatFileSize(file.size)}) exceeds 100MB limit.`;
     }
 
     if (file.size === 0) {
@@ -208,7 +209,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     setValidationError(null);
   };
 
-  const startSingleUpload = (file: File) => {
+  const startSingleUpload = async (file: File) => {
     setUploadProgress({
       state: 'uploading',
       percentage: 10,
@@ -216,9 +217,18 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
       uploadedMedia: null,
     });
 
+    // Cloud persistence mirroring
+    let cloudDownloadUrl: string | null = null;
+    try {
+      cloudDownloadUrl = await uploadBinaryToFirebaseStorage(file, `${Date.now()}_${file.name}`);
+    } catch {}
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('folder', 'public');
+    if (cloudDownloadUrl) {
+      formData.append('storageUrl', cloudDownloadUrl);
+    }
 
     const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_guest_id') || 'guest');
     formData.append('userId', effectiveUserId);
@@ -276,6 +286,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
         const safeItem: MediaItem = {
           ...mediaItem,
+          storageUrl: cloudDownloadUrl || mediaItem.storageUrl,
           userId: user ? user.uid : effectiveUserId,
           userEmail: user?.email || undefined,
           isGuest: !user,
@@ -289,11 +300,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           uploadedMedia: safeItem,
         });
 
-        try {
-          onUploadSuccess(safeItem);
-        } catch (err) {
-          console.warn('Callback error:', err);
-        }
+        onUploadSuccess(safeItem);
       } else {
         setUploadProgress({
           state: 'error',
@@ -346,7 +353,12 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
     const effectiveUserId = user ? user.uid : (localStorage.getItem('audiolink_guest_id') || 'guest');
     const successfulItems: MediaItem[] = [];
 
-    const uploadSingleItem = (item: BatchFileItem): Promise<MediaItem | null> => {
+    const uploadSingleItem = async (item: BatchFileItem): Promise<MediaItem | null> => {
+      let cloudUrl: string | null = null;
+      try {
+        cloudUrl = await uploadBinaryToFirebaseStorage(item.file, `${Date.now()}_${item.name}`);
+      } catch {}
+
       return new Promise((resolve) => {
         try {
           setBatchQueue((prev) =>
@@ -357,16 +369,13 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
           formData.append('file', item.file);
           formData.append('folder', 'public');
           formData.append('userId', effectiveUserId);
-          if (user?.email) {
-            formData.append('userEmail', user.email);
-          }
+          if (cloudUrl) formData.append('storageUrl', cloudUrl);
+          if (user?.email) formData.append('userEmail', user.email);
 
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/api/upload', true);
           xhr.setRequestHeader('x-user-id', effectiveUserId);
-          if (user?.email) {
-            xhr.setRequestHeader('x-user-email', user.email);
-          }
+          if (user?.email) xhr.setRequestHeader('x-user-email', user.email);
 
           xhr.upload.onprogress = (evt) => {
             if (evt.lengthComputable) {
@@ -408,6 +417,7 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
                 if (mediaItem) {
                   const safeMedia: MediaItem = {
                     ...mediaItem,
+                    storageUrl: cloudUrl || mediaItem.storageUrl,
                     userId: user ? user.uid : effectiveUserId,
                     userEmail: user?.email || undefined,
                     isGuest: !user,
@@ -597,7 +607,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
-      setIsRecording(false);
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
@@ -647,7 +656,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Media Type Filter and Mode Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-900/60 rounded-xl border border-slate-700/60">
           <button
@@ -783,7 +791,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
         </div>
       )}
 
-      {/* Main Dropzone */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -963,7 +970,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             )}
           </div>
 
-          {/* Sample Audios Quick Loader */}
           {!isUploading && batchQueue.length === 0 && (
             <div className="mt-6 pt-5 border-t border-slate-800/80 w-full flex flex-wrap items-center justify-center gap-2 text-xs text-slate-400">
               <span className="font-medium text-slate-500">Try a sample:</span>
@@ -984,7 +990,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             </div>
           )}
 
-          {/* Batch Items Queue */}
           {uploadMode === 'batch' && batchQueue.length > 0 && (
             <div className="w-full mt-6 bg-slate-950/70 border border-slate-800 rounded-2xl p-3 sm:p-4 text-left animate-in fade-in">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-xs text-slate-400 font-semibold">
@@ -1047,7 +1052,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             </div>
           )}
 
-          {/* Batch Completed Summary */}
           {batchCompletedItems.length > 0 && (
             <div className="w-full mt-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-left animate-in fade-in">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-emerald-500/20">
@@ -1130,7 +1134,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             </div>
           )}
 
-          {/* Upload Progress Bar */}
           {isUploading && (
             <div className="w-full mt-6 space-y-2 animate-in fade-in">
               <div className="flex justify-between text-xs text-slate-400">
@@ -1153,7 +1156,6 @@ export const AudioUploader: React.FC<AudioUploaderProps> = ({
             </div>
           )}
 
-          {/* Validation & Error Alerts */}
           {validationError && (
             <div className="w-full mt-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-start gap-2.5 text-left text-xs text-rose-300 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />

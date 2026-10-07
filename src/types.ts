@@ -18,6 +18,7 @@ export interface MediaItem {
   directUrl: string;
   directAudioUrl?: string;
   playerUrl?: string;
+  storageUrl?: string;
   customSlug?: string;
   expiresAt?: string;
   password?: string;
