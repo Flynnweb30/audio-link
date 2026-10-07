@@ -16,6 +16,7 @@ import { auth, db, signInWithGoogle, signOutUser } from './firebase/config';
 import { MediaItem } from './types';
 import { AudioUploader } from './components/AudioUploader';
 import { UrlShareCard } from './components/UrlShareCard';
+import { RecentUploadsGrid } from './components/RecentUploadsGrid';
 import { FullHistoryModal } from './components/FullHistoryModal';
 import { QrCodeModal } from './components/QrCodeModal';
 import { ProPricingModal } from './components/ProPricingModal';
@@ -74,6 +75,15 @@ function getRouteFromPathname(pathname: string): TabRoute {
   return 'all';
 }
 
+function getOrCreateClientToken(): string {
+  let token = localStorage.getItem('audiolink_client_token');
+  if (!token) {
+    token = `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    localStorage.setItem('audiolink_client_token', token);
+  }
+  return token;
+}
+
 const SAMPLE_MEDIA_LIST: MediaItem[] = [
   {
     id: 'sample_lofi_beat',
@@ -117,10 +127,7 @@ export const App: React.FC = () => {
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null);
   const [standaloneViewId, setStandaloneViewId] = useState<string | null>(null);
 
-  const [guestCount, setGuestCount] = useState<number>(() => {
-    const saved = localStorage.getItem('audiolink_guest_count');
-    return saved ? parseInt(saved, 10) : 0;
-  });
+  const [guestRemaining, setGuestRemaining] = useState<number>(5);
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isQrOpen, setIsQrOpen] = useState(false);
@@ -129,7 +136,7 @@ export const App: React.FC = () => {
 
   const isFirestoreActiveRef = useRef<boolean>(true);
 
-  // Synchronize route and SEO metadata
+  // Synchronize SEO & Canonical tags
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -207,9 +214,27 @@ export const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  // Fetch persistent media & guest quota from server
   const fetchBackendMedia = useCallback(async () => {
     try {
-      const res = await fetch('/api/media');
+      const clientToken = getOrCreateClientToken();
+      const headers: Record<string, string> = {
+        'x-client-token': clientToken,
+      };
+
+      if (user) {
+        headers['x-user-id'] = user.uid;
+      }
+
+      // Check server quota
+      const quotaRes = await fetch(`/api/guest-quota?clientToken=${encodeURIComponent(clientToken)}`, { headers });
+      if (quotaRes.ok) {
+        const qData = await quotaRes.json();
+        setGuestRemaining(qData.remaining);
+      }
+
+      // Fetch persistent history
+      const res = await fetch('/api/media', { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.items && Array.isArray(data.items)) {
@@ -222,12 +247,13 @@ export const App: React.FC = () => {
     } catch {
       // Offline fallback
     }
-  }, [activeItem]);
+  }, [user, activeItem]);
 
   useEffect(() => {
     fetchBackendMedia();
   }, [fetchBackendMedia]);
 
+  // Firestore real-time sync with ad-blocker & permission protection
   useEffect(() => {
     if (!db || !isFirestoreActiveRef.current) return;
 
@@ -286,6 +312,7 @@ export const App: React.FC = () => {
     try {
       setIsSigningIn(true);
       await signInWithGoogle();
+      fetchBackendMedia();
     } catch (err) {
       console.error(err);
     } finally {
@@ -296,6 +323,8 @@ export const App: React.FC = () => {
   const handleSignOut = async () => {
     try {
       await signOutUser();
+      setActiveItem(null);
+      fetchBackendMedia();
     } catch (err) {
       console.error(err);
     }
@@ -308,12 +337,7 @@ export const App: React.FC = () => {
     };
     setActiveItem(safeItem);
     setItems((prev) => [safeItem, ...prev.filter((i) => i.id !== safeItem.id)]);
-
-    if (!user) {
-      const newCount = guestCount + 1;
-      setGuestCount(newCount);
-      localStorage.setItem('audiolink_guest_count', newCount.toString());
-    }
+    fetchBackendMedia();
 
     if (db && isFirestoreActiveRef.current) {
       try {
@@ -342,11 +366,7 @@ export const App: React.FC = () => {
       );
     });
 
-    if (!user) {
-      const newCount = guestCount + safeItems.length;
-      setGuestCount(newCount);
-      localStorage.setItem('audiolink_guest_count', newCount.toString());
-    }
+    fetchBackendMedia();
 
     if (db && isFirestoreActiveRef.current) {
       try {
@@ -382,9 +402,10 @@ export const App: React.FC = () => {
         await deleteDoc(doc(db, 'media', id));
       } catch {}
     }
+
+    fetchBackendMedia();
   };
 
-  const guestRemaining = Math.max(0, 30 - guestCount);
   const routeConfig = ROUTE_CONFIG[currentTab];
 
   if (standaloneViewId) {
@@ -401,7 +422,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Top Navigation Bar */}
+      {/* Top Header Navigation */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <div 
@@ -490,7 +511,7 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Studio View */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col gap-8">
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
@@ -520,7 +541,7 @@ export const App: React.FC = () => {
           />
         </div>
 
-        {/* Active Upload Result / Preview */}
+        {/* Active Upload Result / Preview Widget */}
         {activeItem && (
           <div className="animate-in fade-in zoom-in-95 duration-200">
             <UrlShareCard
@@ -530,6 +551,14 @@ export const App: React.FC = () => {
             />
           </div>
         )}
+
+        {/* Centralized Recent Conversion History Grid (Matching Screenshot 1) */}
+        <RecentUploadsGrid
+          items={items}
+          currentTab={currentTab}
+          onViewAllHistory={() => setIsHistoryOpen(true)}
+          onSelectItem={(item) => setActiveItem(item)}
+        />
       </main>
 
       {/* Footer */}
@@ -544,7 +573,7 @@ export const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* Modals */}
+      {/* Full History Modal (Matching Screenshot 2 & 3) */}
       <FullHistoryModal
         items={items}
         isOpen={isHistoryOpen}

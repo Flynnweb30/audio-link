@@ -13,6 +13,9 @@ const UPLOADS_DIR = process.env.DATA_DIR || process.env.PERSISTENT_DIR || path.r
 const METADATA_FILE = path.join(UPLOADS_DIR, 'metadata.json');
 const PRODUCTION_ORIGIN = 'https://audiolink-oskn.onrender.com';
 
+const GUEST_DAILY_LIMIT = 5;
+const GUEST_RETENTION_HOURS = 48;
+
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
@@ -36,7 +39,9 @@ export interface MediaItem {
   directAudioUrl?: string;
   playerUrl?: string;
   customSlug?: string;
-  expiresAt?: string;
+  expiresAt?: string | null;
+  isGuest?: boolean;
+  guestIp?: string;
   password?: string;
   hasPassword?: boolean;
   views?: number;
@@ -46,32 +51,52 @@ export interface MediaItem {
 
 let mediaRegistry: Record<string, MediaItem> = {};
 
+function pruneExpiredAndOrphanedFiles(): boolean {
+  let modified = false;
+  const now = Date.now();
+
+  for (const [id, item] of Object.entries(mediaRegistry)) {
+    const itemPath = path.join(UPLOADS_DIR, item.filename);
+
+    if (item.expiresAt && new Date(item.expiresAt).getTime() <= now) {
+      if (fs.existsSync(itemPath)) {
+        try { fs.unlinkSync(itemPath); } catch {}
+      }
+      delete mediaRegistry[id];
+      modified = true;
+      continue;
+    }
+
+    if (!fs.existsSync(itemPath)) {
+      delete mediaRegistry[id];
+      modified = true;
+      continue;
+    }
+
+    try {
+      const stat = fs.statSync(itemPath);
+      if (stat.size < 16) {
+        fs.unlinkSync(itemPath);
+        delete mediaRegistry[id];
+        modified = true;
+      }
+    } catch {
+      delete mediaRegistry[id];
+      modified = true;
+    }
+  }
+
+  return modified;
+}
+
 function loadRegistry(): void {
   try {
     if (fs.existsSync(METADATA_FILE)) {
       const data = fs.readFileSync(METADATA_FILE, 'utf-8');
       mediaRegistry = JSON.parse(data);
-      let modified = false;
-      for (const [id, item] of Object.entries(mediaRegistry)) {
-        const itemPath = path.join(UPLOADS_DIR, item.filename);
-        if (!fs.existsSync(itemPath)) {
-          delete mediaRegistry[id];
-          modified = true;
-        } else {
-          try {
-            const stat = fs.statSync(itemPath);
-            if (stat.size < 32) {
-              fs.unlinkSync(itemPath);
-              delete mediaRegistry[id];
-              modified = true;
-            }
-          } catch {
-            delete mediaRegistry[id];
-            modified = true;
-          }
-        }
+      if (pruneExpiredAndOrphanedFiles()) {
+        saveRegistry();
       }
-      if (modified) saveRegistry();
     } else {
       mediaRegistry = {};
       saveRegistry();
@@ -94,6 +119,11 @@ function saveRegistry(): void {
 }
 
 loadRegistry();
+setInterval(() => {
+  if (pruneExpiredAndOrphanedFiles()) {
+    saveRegistry();
+  }
+}, 10 * 60 * 1000);
 
 function detectMediaType(ext: string, mime?: string): MediaType {
   const cleanExt = ext.toLowerCase();
@@ -126,8 +156,8 @@ function inferMimeType(ext: string, providedMime?: string): string {
     '.jpeg': 'image/jpeg',
     '.gif': 'image/gif',
     '.webp': 'image/webp',
-    '.svg': 'image/svg+xml',
     '.avif': 'image/avif',
+    '.svg': 'image/svg+xml',
     '.bmp': 'image/bmp',
     '.ico': 'image/x-icon',
   };
@@ -174,10 +204,27 @@ const upload = multer({
     if (ALLOWED_EXTENSIONS.has(ext) || file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/') || file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
-      cb(new Error(`Unsupported file type: ${ext || file.mimetype}. Allowed: MP3, WAV, M4A, OGG, MP4, WEBM, PNG, JPG, WEBP.`));
+      cb(new Error(`Unsupported file type: ${ext || file.mimetype}. Allowed: MP3, WAV, M4A, OGG, MP4, WEBM, PNG, JPG, WEBP, AVIF.`));
     }
   },
 });
+
+function getClientIp(req: express.Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || '127.0.0.1';
+}
+
+function countRecentGuestUploads(guestKey: string): number {
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  return Object.values(mediaRegistry).filter((m) => {
+    if (!m.isGuest) return false;
+    const isMatchingClient = (m.userId && m.userId === guestKey) || (m.guestIp && m.guestIp === guestKey);
+    return isMatchingClient && new Date(m.createdAt).getTime() > oneDayAgo;
+  }).length;
+}
 
 function streamMediaFile(
   req: express.Request,
@@ -257,7 +304,7 @@ async function startServer() {
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization, x-user-id, x-api-key, x-media-password');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization, x-user-id, x-client-token, x-api-key, x-media-password');
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
   });
@@ -266,12 +313,10 @@ async function startServer() {
     res.json({ status: 'healthy', timestamp: new Date().toISOString() });
   });
 
-  // 301 Permanent Redirect: /image -> /images canonical route
   app.get('/image', (_req, res) => {
     res.redirect(301, '/images');
   });
 
-  // Production XML Sitemap endpoint (Strictly real indexable routes only)
   app.get('/sitemap.xml', (_req, res) => {
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -304,10 +349,37 @@ async function startServer() {
     res.send(xml);
   });
 
-  // Production Robots.txt endpoint
   app.get('/robots.txt', (_req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(`User-agent: *\nAllow: /\nAllow: /audio\nAllow: /video\nAllow: /images\nDisallow: /api/\nDisallow: /*?view=*\n\nSitemap: ${PRODUCTION_ORIGIN}/sitemap.xml\n`);
+  });
+
+  // Guest quota check endpoint
+  app.get('/api/guest-quota', (req, res) => {
+    const rawUserId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
+    const clientToken = (req.headers['x-client-token'] as string) || (req.query.clientToken as string) || getClientIp(req);
+    const isLogged = Boolean(rawUserId && rawUserId !== 'guest' && !rawUserId.startsWith('guest_'));
+
+    if (isLogged) {
+      return res.json({
+        isGuest: false,
+        usedToday: 0,
+        remaining: 999999,
+        limit: 999999,
+        retentionHours: null,
+      });
+    }
+
+    const used = countRecentGuestUploads(clientToken);
+    const remaining = Math.max(0, GUEST_DAILY_LIMIT - used);
+
+    return res.json({
+      isGuest: true,
+      usedToday: used,
+      remaining,
+      limit: GUEST_DAILY_LIMIT,
+      retentionHours: GUEST_RETENTION_HOURS,
+    });
   });
 
   app.post('/api/upload', (req, res) => {
@@ -328,12 +400,36 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'No media file provided.' });
       }
 
+      const rawUserId = (req.headers['x-user-id'] as string) || (req.body?.userId as string) || 'guest';
+      const clientToken = (req.headers['x-client-token'] as string) || (req.body?.clientToken as string) || getClientIp(req);
+      const isLoggedUser = Boolean(rawUserId && rawUserId !== 'guest' && !rawUserId.startsWith('guest_'));
+      const clientIp = getClientIp(req);
+
+      // Enforce strict 5 conversions / day for guests on the server
+      if (!isLoggedUser) {
+        const usedCount = countRecentGuestUploads(clientToken);
+        if (usedCount + files.length > GUEST_DAILY_LIMIT) {
+          files.forEach((f) => {
+            const p = path.join(UPLOADS_DIR, f.filename);
+            if (fs.existsSync(p)) { try { fs.unlinkSync(p); } catch {} }
+          });
+          return res.status(429).json({
+            success: false,
+            error: `Guest limit exceeded. Guests are allowed a maximum of ${GUEST_DAILY_LIMIT} conversions per day. Sign in with Google for unlimited permanent conversions!`,
+            usedToday: usedCount,
+            limit: GUEST_DAILY_LIMIT,
+          });
+        }
+      }
+
       const baseUrl = getBaseUrl(req);
-      const userId = (req.headers['x-user-id'] as string) || (req.body?.userId as string) || 'guest';
       const folder = (req.body?.folder as string) || 'public';
       const customSlug = (req.body?.customSlug as string) || undefined;
-      const expiresAt = (req.body?.expiresAt as string) || undefined;
+      const explicitExpiresAt = req.body?.expiresAt as string | undefined;
       const password = (req.body?.password as string) || undefined;
+
+      const nowIso = new Date().toISOString();
+      const guestExpiryIso = new Date(Date.now() + GUEST_RETENTION_HOURS * 60 * 60 * 1000).toISOString();
 
       const results: MediaItem[] = [];
 
@@ -343,6 +439,11 @@ async function startServer() {
         const mediaType = detectMediaType(ext, file.mimetype);
         const mimeType = inferMimeType(ext, file.mimetype);
 
+        // Retention policy: Logged-in = permanent (unless user sets custom expiration), Guest = exact 48 hours
+        const finalExpiresAt = isLoggedUser 
+          ? (explicitExpiresAt || null) 
+          : (explicitExpiresAt || guestExpiryIso);
+
         const mediaItem: MediaItem = {
           id: fileId,
           originalName: file.originalname,
@@ -350,11 +451,13 @@ async function startServer() {
           mediaType,
           mimeType,
           size: file.size,
-          createdAt: new Date().toISOString(),
-          userId,
+          createdAt: nowIso,
+          userId: isLoggedUser ? rawUserId : clientToken,
+          isGuest: !isLoggedUser,
+          guestIp: clientIp,
           folder,
           customSlug,
-          expiresAt,
+          expiresAt: finalExpiresAt,
           password,
           hasPassword: !!password,
           views: 0,
@@ -377,7 +480,6 @@ async function startServer() {
       }
 
       saveRegistry();
-
       const firstItem = results[0];
 
       return res.status(201).json({
@@ -395,17 +497,23 @@ async function startServer() {
 
   app.get('/api/media', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
+    pruneExpiredAndOrphanedFiles();
+
     const baseUrl = getBaseUrl(req);
     const userId = (req.headers['x-user-id'] as string) || (req.query.userId as string);
+    const clientToken = (req.headers['x-client-token'] as string) || (req.query.clientToken as string);
     const typeFilter = req.query.type as string;
+    const isLoggedUser = Boolean(userId && userId !== 'guest' && !userId.startsWith('guest_') && userId !== 'all');
 
     let items = Object.values(mediaRegistry).filter((i) => {
       const p = path.join(UPLOADS_DIR, i.filename);
-      return fs.existsSync(p) && fs.statSync(p).size >= 32;
+      return fs.existsSync(p) && fs.statSync(p).size >= 16;
     });
 
-    if (userId && userId !== 'all') {
+    if (isLoggedUser) {
       items = items.filter((i) => i.userId === userId);
+    } else if (clientToken) {
+      items = items.filter((i) => i.isGuest && (i.userId === clientToken || i.guestIp === clientToken));
     }
 
     if (typeFilter && ['audio', 'video', 'image'].includes(typeFilter)) {
@@ -430,15 +538,13 @@ async function startServer() {
 
   app.get(['/api/media/:id', '/api/audio/:id'], (req, res) => {
     res.setHeader('Content-Type', 'application/json');
+    pruneExpiredAndOrphanedFiles();
+
     const id = req.params.id;
     const item = mediaRegistry[id];
 
     if (!item) {
-      return res.status(404).json({ error: 'Media not found' });
-    }
-
-    if (item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) {
-      return res.status(410).json({ error: 'This media link has expired.' });
+      return res.status(404).json({ error: 'Media not found or has expired.' });
     }
 
     const baseUrl = getBaseUrl(req);
@@ -461,8 +567,12 @@ async function startServer() {
     const item = mediaRegistry[fileId] || Object.values(mediaRegistry).find((m) => m.filename === filename);
 
     if (item) {
-      if (item.expiresAt && new Date(item.expiresAt).getTime() < Date.now()) {
-        return res.status(410).send('This media link has expired.');
+      if (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()) {
+        const p = path.join(UPLOADS_DIR, item.filename);
+        if (fs.existsSync(p)) { try { fs.unlinkSync(p); } catch {} }
+        delete mediaRegistry[item.id];
+        saveRegistry();
+        return res.status(410).send('This media link has expired (48-hour guest retention exceeded).');
       }
 
       if (item.password) {
@@ -481,7 +591,7 @@ async function startServer() {
 
     const filePath = path.join(UPLOADS_DIR, filename);
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Media file not found' });
+      return res.status(404).json({ error: 'Media file not found or has expired.' });
     }
 
     const ext = path.extname(filename);
@@ -494,7 +604,11 @@ async function startServer() {
     const item = mediaRegistry[id];
 
     if (!item) {
-      return res.status(404).json({ error: 'Media not found' });
+      return res.status(404).json({ error: 'Media not found or has expired.' });
+    }
+
+    if (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()) {
+      return res.status(410).send('This media link has expired.');
     }
 
     item.downloads = (item.downloads || 0) + 1;
