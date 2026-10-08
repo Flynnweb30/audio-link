@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Radio, 
   Sparkles, 
@@ -8,19 +8,19 @@ import {
   LogIn, 
   LogOut, 
   Loader2, 
-  Video, 
   Clapperboard 
 } from 'lucide-react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 
 import { auth, signInWithGoogle, signOutUser } from './firebase/config';
 import { 
-  syncRecordToFirebase, 
-  syncBatchToFirebase, 
-  deleteRecordFromFirebase, 
-  subscribeToUserHistory 
+  subscribeToOwnerMediaLibrary, 
+  deleteMediaRecordFromFirebase, 
+  renameMediaRecordInFirestore, 
+  moveMediaRecordFolderInFirestore, 
+  getUserQuotaStats 
 } from './firebase/syncService';
-import { MediaItem, GuestQuotaInfo } from './types';
+import { MediaItem, UserQuotaStats } from './types';
 import { AudioUploader } from './components/AudioUploader';
 import { VideoStudio } from './components/VideoStudio';
 import { UrlShareCard } from './components/UrlShareCard';
@@ -47,28 +47,28 @@ const ROUTE_CONFIG: Record<TabRoute, {
     description: 'Convert any audio, video, or image file into permanent, direct streamable HTTP URLs with 206 Byte-Range streaming. Fast, free, and reliable.',
     badge: 'High-Speed Direct Media CDN & Byte-Streaming',
     heroHeading: 'Turn Any Media into a',
-    heroSubheading: 'Upload media and get permanent streamable HTTP links with 206 Byte-Range streaming. Perfect for bots, games, web apps, and embeds.',
+    heroSubheading: 'Upload media and get permanent streamable HTTP links backed by Firebase Storage. Perfect for bots, games, web apps, and embeds.',
   },
   audio: {
     path: '/audio',
     title: 'Audio Direct URLs & MP3 Streaming CDN | AudioLink',
-    description: 'Turn MP3, WAV, M4A, OGG, and FLAC files into permanent, direct streamable audio links with instant byte-range playback for bots and web apps.',
+    description: 'Turn MP3, WAV, M4A, OGG, and FLAC files into permanent, direct streamable audio links with instant playback for bots and web apps.',
     badge: 'Direct Audio CDN & Byte-Streaming',
     heroHeading: 'Turn Any Audio into a',
-    heroSubheading: 'Upload MP3, WAV, M4A, OGG, and FLAC to generate direct streamable URLs with HTTP 206 Byte-Range streaming.',
+    heroSubheading: 'Upload MP3, WAV, M4A, OGG, and FLAC to generate direct streamable URLs backed by Firebase Storage.',
   },
   video: {
     path: '/video',
     title: 'Video Direct URLs & MP4 Streaming CDN | AudioLink',
-    description: 'Convert MP4, WEBM, and MOV video files into permanent direct streamable video URLs with HTTP 206 chunked playback support.',
-    badge: 'Direct Video CDN & Chunked Streaming',
+    description: 'Convert MP4, WEBM, and MOV video files into permanent direct streamable video URLs with instant streaming playback support.',
+    badge: 'Direct Video CDN & Streaming',
     heroHeading: 'Turn Any Video into a',
     heroSubheading: 'Upload MP4, WEBM, and MOV video files to get high-speed permanent direct links for HTML5 players and embeds.',
   },
   'video-studio': {
     path: '/video-studio',
     title: 'Video Studio - Edit, Record & Create Streamable Media | AudioLink',
-    description: 'Dedicated VEED-style video editing workspace: Record webcam/screen, split/trim clips, clean audio, and export to direct CDN URLs.',
+    description: 'Dedicated VEED-style video editing workspace: Record webcam/screen, split/trim clips, clean audio, and export to direct Firebase Storage URLs.',
     badge: 'Dedicated Video Edit & Record Studio',
     heroHeading: 'Video Studio — Edit, Record & Export to',
     heroSubheading: 'Professional in-browser video editor with timeline trimming, keyboard split (S), canvas aspect ratios, and instant cloud CDN export.',
@@ -76,8 +76,8 @@ const ROUTE_CONFIG: Record<TabRoute, {
   image: {
     path: '/images',
     title: 'Image Direct URLs & Media Hosting CDN | AudioLink',
-    description: 'Upload PNG, JPG, WEBP, and GIF images to generate permanent, fast-loading direct CDN links for embedding anywhere.',
-    badge: 'Direct Image CDN & Instant Hosting',
+    description: 'Upload PNG, JPG, WEBP, and GIF images with auto-stripped EXIF metadata to generate permanent, fast-loading direct CDN links.',
+    badge: 'Direct Image CDN & Instant Hosting (EXIF Stripped)',
     heroHeading: 'Turn Any Image into a',
     heroSubheading: 'Upload PNG, JPG, WEBP, and GIF images to get permanent direct CDN image URLs for markdown, blogs, and websites.',
   },
@@ -108,40 +108,26 @@ export const App: React.FC = () => {
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null);
   const [standaloneViewId, setStandaloneViewId] = useState<string | null>(null);
 
-  const [guestQuota, setGuestQuota] = useState<GuestQuotaInfo>({
-    remaining: 5,
-    maxDaily: 5,
-    used: 0,
-    retentionHours: 48,
-  });
-
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [isProOpen, setIsProOpen] = useState(false);
   const [isApiOpen, setIsApiOpen] = useState(false);
 
-  const activeUnsubscribeRef = useRef<(() => void) | null>(null);
-
-  const getGuestId = useCallback(() => {
+  // Persistent Owner / Guest ID
+  const getOwnerId = useCallback(() => {
+    if (user) return user.uid;
     let gid = localStorage.getItem('audiolink_guest_id');
     if (!gid) {
       gid = 'guest_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
       localStorage.setItem('audiolink_guest_id', gid);
     }
     return gid;
-  }, []);
+  }, [user]);
 
-  const refreshGuestQuota = useCallback(async () => {
-    try {
-      const gid = getGuestId();
-      const res = await fetch(`/api/guest-quota?guestId=${encodeURIComponent(gid)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setGuestQuota(data);
-      }
-    } catch {}
-  }, [getGuestId]);
+  // Quota statistics
+  const quotaStats: UserQuotaStats = getUserQuotaStats(items.length, user);
 
+  // Sync route and SEO metadata
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -174,30 +160,19 @@ export const App: React.FC = () => {
 
     const ogUrl = document.querySelector('meta[property="og:url"]');
     if (ogUrl) ogUrl.setAttribute('content', canonicalUrl);
-
-    const twTitle = document.querySelector('meta[name="twitter:title"]');
-    if (twTitle) twTitle.setAttribute('content', cfg.title);
-
-    const twDesc = document.querySelector('meta[name="twitter:description"]');
-    if (twDesc) twDesc.setAttribute('content', cfg.description);
-
-    const twUrl = document.querySelector('meta[name="twitter:url"]');
-    if (twUrl) twUrl.setAttribute('content', canonicalUrl);
   }, [currentTab]);
 
+  // Handle URL query ?view=ID
   useEffect(() => {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
-      const viewId = params.get('view');
-      setStandaloneViewId(viewId);
+      setStandaloneViewId(params.get('view'));
       setCurrentTab(getRouteFromPathname(window.location.pathname));
     };
 
     const initialParams = new URLSearchParams(window.location.search);
     const initialView = initialParams.get('view');
-    if (initialView) {
-      setStandaloneViewId(initialView);
-    }
+    if (initialView) setStandaloneViewId(initialView);
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -211,157 +186,92 @@ export const App: React.FC = () => {
     }
   };
 
-  const loadAndReconcileHistory = useCallback(async (activeUser: User | null) => {
-    const effectiveUserId = activeUser ? activeUser.uid : getGuestId();
-
-    try {
-      const res = await fetch(`/api/media?userId=${encodeURIComponent(effectiveUserId)}`, {
-        headers: {
-          'x-user-id': effectiveUserId,
-          'x-user-email': activeUser?.email || '',
-        },
-      });
-
-      let serverItems: MediaItem[] = [];
-      if (res.ok) {
-        const data = await res.json();
-        if (data.items && Array.isArray(data.items)) {
-          serverItems = data.items;
-        }
-      }
-
-      setItems(serverItems);
-
-      if (activeUnsubscribeRef.current) {
-        activeUnsubscribeRef.current();
-        activeUnsubscribeRef.current = null;
-      }
-
-      const unsub = subscribeToUserHistory(effectiveUserId, (firebaseItems) => {
-        setItems((prev) => {
-          const map = new Map<string, MediaItem>();
-          prev.forEach((i) => map.set(i.id, i));
-          firebaseItems.forEach((i) => map.set(i.id, { ...map.get(i.id), ...i }));
-          return Array.from(map.values()).sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-        });
-      });
-
-      if (unsub) {
-        activeUnsubscribeRef.current = unsub;
-      }
-
-      if (activeUser && serverItems.length > 0) {
-        syncBatchToFirebase(serverItems, activeUser);
-      }
-    } catch {}
-  }, [getGuestId]);
-
+  // Firebase Auth & Real-Time Firestore Library Subscription
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    let unsubLibrary: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
-      loadAndReconcileHistory(currentUser);
 
-      if (!currentUser) {
-        refreshGuestQuota();
+      if (unsubLibrary) {
+        unsubLibrary();
+        unsubLibrary = null;
       }
+
+      const activeOwnerId = currentUser ? currentUser.uid : getOwnerId();
+      unsubLibrary = subscribeToOwnerMediaLibrary(activeOwnerId, (libraryRecords) => {
+        setItems(libraryRecords);
+        if (!activeItem && libraryRecords.length > 0) {
+          setActiveItem(libraryRecords[0]);
+        }
+      });
     });
 
     return () => {
-      unsubscribe();
-      if (activeUnsubscribeRef.current) {
-        activeUnsubscribeRef.current();
-      }
+      unsubAuth();
+      if (unsubLibrary) unsubLibrary();
     };
-  }, [loadAndReconcileHistory, refreshGuestQuota]);
+  }, [getOwnerId, activeItem]);
 
   const handleSignIn = async () => {
     try {
       setIsSigningIn(true);
       await signInWithGoogle();
-    } catch {}
-    finally {
+    } catch {
+    } finally {
       setIsSigningIn(false);
     }
   };
 
   const handleSignOut = async () => {
     try {
-      if (activeUnsubscribeRef.current) {
-        activeUnsubscribeRef.current();
-        activeUnsubscribeRef.current = null;
-      }
       await signOutUser();
       setItems([]);
       setActiveItem(null);
     } catch {}
   };
 
-  const handleUploadSuccess = async (newItem: MediaItem) => {
-    const safeItem: MediaItem = {
-      ...newItem,
-      userId: user ? user.uid : getGuestId(),
-      userEmail: user?.email || undefined,
-      isGuest: !user,
-      expiresAt: user ? undefined : newItem.expiresAt,
-      duration: Number(newItem?.duration ?? newItem?.metadata?.duration ?? 0),
-    };
-
-    setActiveItem(safeItem);
-    setItems((prev) => [safeItem, ...prev.filter((i) => i.id !== safeItem.id)]);
-    await syncRecordToFirebase(safeItem, user);
-
-    if (!user) {
-      refreshGuestQuota();
-    }
+  const handleUploadSuccess = (newItem: MediaItem) => {
+    setActiveItem(newItem);
+    setItems((prev) => [newItem, ...prev.filter((i) => i.id !== newItem.id)]);
   };
 
-  const handleBatchUploadSuccess = async (newItems: MediaItem[]) => {
+  const handleBatchUploadSuccess = (newItems: MediaItem[]) => {
     if (newItems.length === 0) return;
-    const safeItems = newItems.map((item) => ({
-      ...item,
-      userId: user ? user.uid : getGuestId(),
-      userEmail: user?.email || undefined,
-      isGuest: !user,
-      expiresAt: user ? undefined : item.expiresAt,
-      duration: Number(item?.duration ?? item?.metadata?.duration ?? 0),
-    }));
-
-    setActiveItem(safeItems[0]);
-
+    setActiveItem(newItems[0]);
     setItems((prev) => {
       const map = new Map<string, MediaItem>();
       prev.forEach((i) => map.set(i.id, i));
-      safeItems.forEach((i) => map.set(i.id, i));
+      newItems.forEach((i) => map.set(i.id, i));
       return Array.from(map.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
     });
+  };
 
-    await syncBatchToFirebase(safeItems, user);
-
-    if (!user) {
-      refreshGuestQuota();
+  const handleDeleteItem = async (itemToDelete: MediaItem) => {
+    await deleteMediaRecordFromFirebase(itemToDelete);
+    setItems((prev) => prev.filter((i) => i.id !== itemToDelete.id));
+    if (activeItem?.id === itemToDelete.id) {
+      const remaining = items.filter((i) => i.id !== itemToDelete.id);
+      setActiveItem(remaining.length > 0 ? remaining[0] : null);
     }
   };
 
-  const handleDeleteItem = async (id: string) => {
-    try {
-      await fetch(`/api/media/${id}`, { method: 'DELETE' });
-    } catch {}
-
-    await deleteRecordFromFirebase(id);
-
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    if (activeItem?.id === id) {
-      const remaining = items.filter((i) => i.id !== id);
-      setActiveItem(remaining.length > 0 ? remaining[0] : null);
+  const handleRenameItem = async (documentId: string, newName: string) => {
+    await renameMediaRecordInFirestore(documentId, newName);
+    setItems((prev) => prev.map((i) => i.id === documentId || i.documentId === documentId ? { ...i, originalName: newName } : i));
+    if (activeItem && (activeItem.id === documentId || activeItem.documentId === documentId)) {
+      setActiveItem((prev) => prev ? { ...prev, originalName: newName } : null);
     }
+  };
 
-    if (!user) {
-      refreshGuestQuota();
+  const handleMoveItem = async (documentId: string, newFolder: string) => {
+    await moveMediaRecordFolderInFirestore(documentId, newFolder);
+    setItems((prev) => prev.map((i) => i.id === documentId || i.documentId === documentId ? { ...i, folder: newFolder } : i));
+    if (activeItem && (activeItem.id === documentId || activeItem.documentId === documentId)) {
+      setActiveItem((prev) => prev ? { ...prev, folder: newFolder } : null);
     }
   };
 
@@ -381,15 +291,12 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Top Navigation Bar */}
+      {/* Top Header */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <div 
             className="flex items-center gap-3 cursor-pointer" 
-            onClick={() => {
-              setActiveItem(null);
-              handleTabChange('all');
-            }}
+            onClick={() => { setActiveItem(null); handleTabChange('all'); }}
           >
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-md shadow-emerald-500/20">
               <Radio className="w-5 h-5" />
@@ -398,12 +305,11 @@ export const App: React.FC = () => {
               <span className="font-extrabold text-lg text-white tracking-tight flex items-center gap-1.5">
                 AudioLink <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">v2</span>
               </span>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Audio, Video & Direct Media Streaming</p>
+              <p className="text-[11px] text-slate-400 hidden sm:block">Firebase Media Converter & Free Cloud Hosting</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Dedicated Video Studio Tab button */}
             <button
               type="button"
               onClick={() => handleTabChange('video-studio')}
@@ -484,7 +390,7 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Container */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 sm:py-10 flex flex-col gap-8">
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
@@ -499,14 +405,11 @@ export const App: React.FC = () => {
           </p>
         </div>
 
-        {/* WORKSPACE ROUTING:
-            - When on /video-studio: Dedicated VEED-style Video Studio Editor/Recorder
-            - When on /video, /audio, /images, or /: Original Media Converter workflow completely preserved!
-        */}
+        {/* Video Studio or Media Converter */}
         {currentTab === 'video-studio' ? (
           <VideoStudio
             user={user}
-            guestRemaining={guestQuota.remaining}
+            guestRemaining={quotaStats.remaining}
             onExportSuccess={handleUploadSuccess}
             onSignIn={handleSignIn}
           />
@@ -517,27 +420,29 @@ export const App: React.FC = () => {
               onBatchUploadSuccess={handleBatchUploadSuccess}
               onSelectSample={() => {}}
               user={user}
-              guestRemaining={guestQuota.remaining}
+              quotaStats={quotaStats}
               onSignIn={handleSignIn}
               isSigningIn={isSigningIn}
-              currentFilter={currentTab === 'video-studio' ? 'video' : currentTab}
+              currentFilter={currentTab}
               onFilterChange={handleTabChange}
             />
           </div>
         )}
 
-        {/* Active Upload Result / Preview Widget */}
+        {/* Active Upload Result / Preview */}
         {activeItem && (
           <div className="animate-in fade-in zoom-in-95 duration-200">
             <UrlShareCard
               item={activeItem}
               onOpenQr={() => setIsQrOpen(true)}
               onDeleteItem={handleDeleteItem}
+              onRenameItem={handleRenameItem}
+              onMoveItem={handleMoveItem}
             />
           </div>
         )}
 
-        {/* Centralized Recent Conversion History */}
+        {/* Recent Conversions Grid */}
         <RecentUploadsGrid
           items={items}
           activeFilter={currentTab === 'video-studio' ? 'video' : currentTab}
@@ -550,7 +455,7 @@ export const App: React.FC = () => {
       {/* Footer */}
       <footer className="border-t border-slate-800 bg-slate-900/60 py-6 text-center text-xs text-slate-500 mt-auto">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>© {new Date().getFullYear()} AudioLink v2. Centralized Media Service.</p>
+          <p>© {new Date().getFullYear()} AudioLink v2. Centralized Firebase Storage & Media Hosting.</p>
           <div className="flex items-center gap-4">
             <button onClick={() => setIsApiOpen(true)} className="hover:text-slate-300 cursor-pointer">API Documentation</button>
             <button onClick={() => setIsProOpen(true)} className="hover:text-slate-300 cursor-pointer">Pro Features</button>
@@ -559,32 +464,28 @@ export const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* View All History Modal */}
+      {/* Modals */}
       <FullHistoryModal
         items={items}
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
-        onSelectItem={(item) => {
-          setActiveItem(item);
-          setIsHistoryOpen(false);
-        }}
+        onSelectItem={(item) => { setActiveItem(item); setIsHistoryOpen(false); }}
         onDeleteItem={handleDeleteItem}
+        onRenameItem={handleRenameItem}
+        onMoveItem={handleMoveItem}
       />
 
       <QrCodeModal
         isOpen={isQrOpen}
         onClose={() => setIsQrOpen(false)}
-        url={activeItem?.directUrl || activeItem?.playerUrl || ''}
+        url={activeItem?.downloadURL || activeItem?.directUrl || ''}
         title={activeItem?.originalName || 'AudioLink Media'}
       />
 
       <ProPricingModal
         isOpen={isProOpen}
         onClose={() => setIsProOpen(false)}
-        onUpgrade={() => {
-          setIsProOpen(false);
-          handleSignIn();
-        }}
+        onUpgrade={() => { setIsProOpen(false); handleSignIn(); }}
       />
 
       <ApiAccessModal

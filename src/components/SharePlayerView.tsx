@@ -14,12 +14,11 @@ import {
   Loader2, 
   AlertCircle, 
   X,
-  RotateCcw,
-  UploadCloud 
+  RotateCcw 
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatFileSize, formatDuration, copyToClipboard } from '../utils/formatters';
-import { fetchRecordFromFirestore } from '../firebase/syncService';
+import { fetchMediaRecordById } from '../firebase/syncService';
 
 interface SharePlayerViewProps {
   mediaId: string;
@@ -29,33 +28,41 @@ interface SharePlayerViewProps {
 const BUILTIN_SAMPLES: Record<string, MediaItem> = {
   sample_lofi_beat: {
     id: 'sample_lofi_beat',
-    originalName: 'Lofi Chill Acoustic (Sample).mp3',
+    documentId: 'sample_lofi_beat',
+    storagePath: 'samples/sample_lofi_beat.mp3',
+    downloadURL: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
+    directUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
     filename: 'sample_lofi_beat.mp3',
+    originalName: 'Lofi Chill Acoustic (Sample).mp3',
     mediaType: 'audio',
     mimeType: 'audio/mpeg',
     size: 2450000,
+    format: 'MP3',
+    folder: 'public',
     createdAt: new Date().toISOString(),
-    duration: 65,
-    userId: 'system',
+    ownerId: 'system',
+    status: 'ready',
     isGuest: false,
-    directUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
-    playerUrl: '/?view=sample_lofi_beat',
-    storageUrl: 'https://cdn.freesound.org/previews/515/515622_10842244-lq.mp3',
+    duration: 65,
   },
   sample_nature_ambience: {
     id: 'sample_nature_ambience',
-    originalName: 'Forest Birds Ambience (Sample).mp3',
+    documentId: 'sample_nature_ambience',
+    storagePath: 'samples/sample_nature_ambience.mp3',
+    downloadURL: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
+    directUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
     filename: 'sample_nature_ambience.mp3',
+    originalName: 'Forest Birds Ambience (Sample).mp3',
     mediaType: 'audio',
     mimeType: 'audio/mpeg',
     size: 1820000,
+    format: 'MP3',
+    folder: 'public',
     createdAt: new Date().toISOString(),
-    duration: 42,
-    userId: 'system',
+    ownerId: 'system',
+    status: 'ready',
     isGuest: false,
-    directUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
-    playerUrl: '/?view=sample_nature_ambience',
-    storageUrl: 'https://cdn.freesound.org/previews/530/530415_11861866-lq.mp3',
+    duration: 42,
   }
 };
 
@@ -78,7 +85,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     setLoading(true);
     setError(null);
 
-    // 1. Built-in sample check
+    // 1. Check built-in sample registry
     if (BUILTIN_SAMPLES[mediaId]) {
       const sampleItem = BUILTIN_SAMPLES[mediaId];
       setItem(sampleItem);
@@ -87,41 +94,18 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       return;
     }
 
-    // 2. Fetch from backend server API
+    // 2. Fetch directly from Firestore as single source of truth
     try {
-      const res = await fetch(`/api/media/${encodeURIComponent(mediaId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.item) {
-          setItem(data.item);
-          setDuration(Number(data.item?.duration ?? data.item?.metadata?.duration ?? 0));
-          setLoading(false);
-          return;
-        }
-      }
-    } catch {}
-
-    // 3. Self-Healing: Query Firestore for the record
-    try {
-      const firestoreRecord = await fetchRecordFromFirestore(mediaId);
-      if (firestoreRecord) {
-        setItem(firestoreRecord);
-        setDuration(Number(firestoreRecord?.duration ?? firestoreRecord?.metadata?.duration ?? 0));
+      const record = await fetchMediaRecordById(mediaId);
+      if (record) {
+        setItem(record);
+        setDuration(record.duration || 0);
         setLoading(false);
-
-        // Sync with server registry so subsequent accesses find it
-        fetch('/api/media/sync-records', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ records: [firestoreRecord] }),
-        }).catch(() => {});
-
         return;
       }
     } catch {}
 
-    // 4. Truly not found anywhere
-    setError('Media not found');
+    setError('Media record could not be found or was removed.');
     setLoading(false);
   };
 
@@ -130,9 +114,9 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
   }, [mediaId]);
 
   const handleCopy = async () => {
-    const targetUrl = item?.directUrl || item?.storageUrl;
-    if (!targetUrl) return;
-    const ok = await copyToClipboard(targetUrl);
+    const url = item?.downloadURL || item?.directUrl;
+    if (!url) return;
+    const ok = await copyToClipboard(url);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -145,9 +129,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play().then(() => {
-        setIsPlaying(true);
-      }).catch(() => {});
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
     }
   };
 
@@ -155,7 +137,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4">
         <Loader2 className="w-10 h-10 text-emerald-400 animate-spin mb-4" />
-        <p className="text-sm text-slate-400">Loading AudioLink Player...</p>
+        <p className="text-sm text-slate-400">Loading Media from Firebase Storage...</p>
       </div>
     );
   }
@@ -165,7 +147,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4">
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4">
           <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
-          <h2 className="text-lg font-bold text-white">Media Link Unavailable</h2>
+          <h2 className="text-lg font-bold text-white">Media Unavailable</h2>
           <p className="text-xs text-slate-400">{error || 'Media not found'}</p>
           <div className="flex flex-col gap-2 pt-2">
             <button
@@ -173,7 +155,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
               onClick={onBackToHome}
               className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs transition-colors cursor-pointer"
             >
-              Back to AudioLink Studio
+              Back to Media Converter
             </button>
             <button
               type="button"
@@ -189,10 +171,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     );
   }
 
-  const directUrl = item.directUrl || item.storageUrl || `/media/${encodeURIComponent(item.filename)}`;
-  const isAudio = item.mediaType === 'audio';
-  const isVideo = item.mediaType === 'video';
-  const isImage = item.mediaType === 'image';
+  const mediaUrl = item.downloadURL || item.directUrl;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -201,7 +180,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
           <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center text-slate-950 font-bold">
             <Radio className="w-5 h-5" />
           </div>
-          <span className="font-bold text-sm tracking-tight text-white">AudioLink Player</span>
+          <span className="font-bold text-sm tracking-tight text-white">AudioLink Media Viewer</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -211,14 +190,12 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
             className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied' : 'Copy Link'}</span>
+            <span>{copied ? 'Copied' : 'Copy URL'}</span>
           </button>
-
           <button
             type="button"
             onClick={onBackToHome}
             className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
-            title="Close (X)"
           >
             <X className="w-5 h-5" />
           </button>
@@ -229,28 +206,25 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
-              {isAudio ? <Music className="w-6 h-6" /> : isVideo ? <Video className="w-6 h-6" /> : <ImageIcon className="w-6 h-6" />}
+              {item.mediaType === 'audio' ? <Music className="w-6 h-6" /> : item.mediaType === 'video' ? <Video className="w-6 h-6" /> : <ImageIcon className="w-6 h-6" />}
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-lg font-bold text-white truncate" title={item.originalName}>
-                {item.originalName}
-              </h1>
+              <h1 className="text-lg font-bold text-white truncate">{item.originalName || item.filename}</h1>
               <p className="text-xs text-slate-400 font-mono">
-                {formatFileSize(item.size)} · {item.mediaType.toUpperCase()}
+                {formatFileSize(item.size)} · {item.format} · Folder: {item.folder}
               </p>
             </div>
           </div>
 
-          {isAudio && (
+          {item.mediaType === 'audio' && (
             <div className="space-y-4 pt-2">
               <audio
                 ref={audioRef}
-                src={directUrl}
-                onTimeUpdate={(e) => isFinite(e.currentTarget.currentTime) && setCurrentTime(e.currentTarget.currentTime)}
-                onLoadedMetadata={(e) => isFinite(e.currentTarget.duration) && setDuration(e.currentTarget.duration)}
+                src={mediaUrl}
+                onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
                 onEnded={() => setIsPlaying(false)}
                 muted={isMuted}
-                preload="metadata"
               />
               <div className="flex items-center gap-4">
                 <button
@@ -260,7 +234,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
                 >
                   {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
                 </button>
-
                 <div className="flex-1 space-y-1">
                   <input
                     type="range"
@@ -270,10 +243,8 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
                     value={currentTime}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && audioRef.current) {
-                        audioRef.current.currentTime = v;
-                        setCurrentTime(v);
-                      }
+                      setCurrentTime(v);
+                      if (audioRef.current) audioRef.current.currentTime = v;
                     }}
                     className="w-full accent-emerald-400 h-2 bg-slate-800 rounded-lg cursor-pointer"
                   />
@@ -282,7 +253,6 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
                     <span>{formatDuration(duration)}</span>
                   </div>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => setIsMuted(!isMuted)}
@@ -294,29 +264,24 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
             </div>
           )}
 
-          {isVideo && (
+          {item.mediaType === 'video' && (
             <div className="rounded-2xl overflow-hidden bg-black max-h-96 flex items-center justify-center">
-              <video src={directUrl} controls className="max-h-96 w-full rounded-2xl" preload="metadata" />
+              <video src={mediaUrl} controls className="max-h-96 w-full rounded-2xl" preload="metadata" />
             </div>
           )}
 
-          {isImage && (
+          {item.mediaType === 'image' && (
             <div className="rounded-2xl overflow-hidden bg-slate-950 max-h-96 flex items-center justify-center p-2">
-              <img 
-                src={directUrl} 
-                alt={item.originalName} 
-                className="max-h-92 w-auto object-contain rounded-xl"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = `/media/${encodeURIComponent(item.filename)}`;
-                }}
-              />
+              <img src={mediaUrl} alt={item.originalName} className="max-h-92 w-auto object-contain rounded-xl" />
             </div>
           )}
 
           <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3">
-            <span className="text-xs text-slate-500 font-mono truncate select-all">{directUrl}</span>
+            <span className="text-xs text-slate-500 font-mono truncate select-all">{mediaUrl}</span>
             <a
-              href={item.storageUrl || `/api/media/${encodeURIComponent(item.id)}/download`}
+              href={mediaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
               download={item.originalName}
             >

@@ -7,18 +7,17 @@ import {
   ExternalLink, 
   Music, 
   Video, 
-  Trash2, 
-  Image as ImageIcon 
+  Trash2 
 } from 'lucide-react';
 import { MediaItem } from '../types';
-import { formatFileSize, formatRelativeTime, formatExpiryLabel, copyToClipboard } from '../utils/formatters';
+import { formatFileSize, formatRelativeTime, copyToClipboard } from '../utils/formatters';
 
 interface RecentUploadsGridProps {
   items: MediaItem[];
   activeFilter: 'all' | 'audio' | 'video' | 'image';
   onViewAllHistory: () => void;
   onSelectItem: (item: MediaItem) => void;
-  onDeleteItem: (id: string) => void;
+  onDeleteItem: (item: MediaItem) => void;
 }
 
 export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
@@ -30,18 +29,14 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  if (!items || items.length === 0) {
-    return null;
-  }
+  if (!items || items.length === 0) return null;
 
   const filtered = items.filter((item) => {
     if (activeFilter === 'all') return true;
     return item.mediaType === activeFilter;
   });
 
-  if (filtered.length === 0) {
-    return null;
-  }
+  if (filtered.length === 0) return null;
 
   const recentSlice = filtered.slice(0, 8);
 
@@ -82,7 +77,7 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {recentSlice.map((item) => {
           const isCopied = copiedId === item.id;
-          const expiryInfo = formatExpiryLabel(item.expiresAt);
+          const url = item.downloadURL || item.directUrl;
 
           return (
             <div
@@ -93,21 +88,14 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
               <div className="aspect-square bg-slate-100 relative overflow-hidden flex items-center justify-center p-2 border-b border-slate-100">
                 {item.mediaType === 'image' ? (
                   <img
-                    src={item.directUrl || `/media/${encodeURIComponent(item.filename)}`}
+                    src={url}
                     alt={item.originalName}
                     loading="lazy"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = `/media/${encodeURIComponent(item.filename)}`;
-                    }}
                     className="w-full h-full object-contain rounded-lg group-hover:scale-102 transition-transform duration-200"
                   />
                 ) : item.mediaType === 'video' ? (
                   <div className="w-full h-full bg-slate-950 rounded-lg flex items-center justify-center relative">
-                    <video
-                      src={item.directUrl || `/media/${encodeURIComponent(item.filename)}`}
-                      preload="metadata"
-                      className="w-full h-full object-cover rounded-lg"
-                    />
+                    <video src={url} preload="metadata" className="w-full h-full object-cover rounded-lg" />
                     <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
                       <div className="w-10 h-10 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-md">
                         <Video className="w-5 h-5 text-rose-600" />
@@ -120,7 +108,7 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
                       <Music className="w-6 h-6 text-indigo-600" />
                     </div>
                     <span className="text-[11px] font-mono text-slate-500 uppercase tracking-wider">
-                      {item.originalName.split('.').pop() || 'AUDIO'}
+                      {item.format || 'AUDIO'}
                     </span>
                   </div>
                 )}
@@ -131,7 +119,7 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
                 >
                   <button
                     type="button"
-                    onClick={(e) => handleCopy(e, item.directUrl, item.id)}
+                    onClick={(e) => handleCopy(e, url, item.id)}
                     className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded-lg transition-colors"
                     title="Copy direct URL"
                   >
@@ -139,7 +127,7 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
                   </button>
 
                   <a
-                    href={item.directUrl}
+                    href={url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -152,7 +140,7 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDeleteItem(item.id);
+                      onDeleteItem(item);
                     }}
                     className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                     title="Delete"
@@ -164,13 +152,9 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
 
               <div className="p-3 sm:p-3.5 flex flex-col justify-between flex-1 gap-2">
                 <div>
-                  <h4 
-                    className="text-xs font-semibold text-slate-900 truncate group-hover:text-emerald-700 transition-colors"
-                    title={item.originalName}
-                  >
-                    {item.originalName}
+                  <h4 className="text-xs font-semibold text-slate-900 truncate group-hover:text-emerald-700 transition-colors">
+                    {item.originalName || item.filename}
                   </h4>
-                  
                   <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
                     <span className="font-mono">{formatFileSize(item.size)}</span>
                     <span>{formatRelativeTime(item.createdAt)}</span>
@@ -178,14 +162,8 @@ export const RecentUploadsGrid: React.FC<RecentUploadsGridProps> = ({
                 </div>
 
                 <div>
-                  <span className={`inline-block px-2 py-0.5 text-[10px] font-semibold rounded-md leading-none ${
-                    expiryInfo.isPermanent
-                      ? 'bg-sky-50 text-sky-600 border border-sky-100'
-                      : expiryInfo.isExpired
-                      ? 'bg-rose-50 text-rose-600 border border-rose-100'
-                      : 'bg-amber-50 text-amber-700 border border-amber-200'
-                  }`}>
-                    {expiryInfo.label}
+                  <span className="inline-block px-2 py-0.5 text-[10px] font-semibold rounded-md leading-none bg-sky-50 text-sky-700 border border-sky-200">
+                    Verified Host
                   </span>
                 </div>
               </div>

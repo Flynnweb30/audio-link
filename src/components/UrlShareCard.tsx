@@ -1,55 +1,63 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   Copy, 
   Check, 
   ExternalLink, 
   QrCode, 
   Trash2, 
+  Edit3, 
+  FolderInput, 
+  Music, 
+  Video, 
+  Image as ImageIcon, 
   Play, 
   Pause, 
   Volume2, 
   VolumeX, 
-  Music, 
-  Video, 
-  Image as ImageIcon, 
-  Code2, 
-  Download, 
   X 
 } from 'lucide-react';
 import { MediaItem } from '../types';
-import { formatFileSize, formatDuration, copyToClipboard } from '../utils/formatters';
+import { 
+  formatFileSize, 
+  formatDuration, 
+  copyToClipboard, 
+  generateEmbedCodes 
+} from '../utils/formatters';
 
 interface UrlShareCardProps {
   item: MediaItem;
   onOpenQr: () => void;
-  onDeleteItem: (id: string) => void;
+  onDeleteItem: (item: MediaItem) => void;
+  onRenameItem?: (documentId: string, newName: string) => void;
+  onMoveItem?: (documentId: string, newFolder: string) => void;
 }
 
 export const UrlShareCard: React.FC<UrlShareCardProps> = ({
   item,
   onOpenQr,
   onDeleteItem,
+  onRenameItem,
+  onMoveItem,
 }) => {
   if (!item) return null;
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [embedTab, setEmbedTab] = useState<'direct' | 'markdown' | 'html' | 'bbcode'>('direct');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [currentTime, setCurrentTime] = useState<number>(0);
-  const [mediaDuration, setMediaDuration] = useState<number>(() => {
-    return Number(item?.duration ?? item?.metadata?.duration ?? 0);
-  });
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
-  const [embedTab, setEmbedTab] = useState<'direct' | 'html' | 'markdown'>('direct');
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(item.duration || 0);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Dialog states for Rename & Move
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState(item.originalName || item.filename);
+  const [isMoveOpen, setIsMoveOpen] = useState(false);
+  const [moveValue, setMoveValue] = useState(item.folder || 'public');
 
-  useEffect(() => {
-    setIsPlaying(false);
-    setCurrentTime(0);
-    setMediaDuration(Number(item?.duration ?? item?.metadata?.duration ?? 0));
-    setShowDeleteConfirm(false);
-  }, [item?.id]);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  const embedCodes = generateEmbedCodes(item);
+  const persistentUrl = item.downloadURL || item.directUrl;
 
   const copyUrl = async (key: string, text: string) => {
     const ok = await copyToClipboard(text);
@@ -65,80 +73,70 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play().then(() => {
-        setIsPlaying(true);
-      }).catch((e) => console.warn('Audio playback error:', e));
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
     }
   };
 
-  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLAudioElement>) => {
-    const audio = e.currentTarget;
-    if (audio && isFinite(audio.currentTime)) {
-      setCurrentTime(audio.currentTime);
+  const handleRenameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onRenameItem && renameValue.trim()) {
+      onRenameItem(item.documentId || item.id, renameValue.trim());
+      setIsRenameOpen(false);
     }
   };
 
-  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLAudioElement>) => {
-    const audio = e.currentTarget;
-    if (audio && isFinite(audio.duration) && !isNaN(audio.duration)) {
-      setMediaDuration(audio.duration);
+  const handleMoveSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onMoveItem && moveValue.trim()) {
+      onMoveItem(item.documentId || item.id, moveValue.trim());
+      setIsMoveOpen(false);
     }
-  };
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
-    if (!isNaN(val) && audioRef.current) {
-      audioRef.current.currentTime = val;
-      setCurrentTime(val);
-    }
-  };
-
-  const directUrl = item.directUrl || '';
-  const playerUrl = item.playerUrl || directUrl;
-  const isAudio = item.mediaType === 'audio';
-  const isVideo = item.mediaType === 'video';
-  const isImage = item.mediaType === 'image';
-
-  const embedCodes = {
-    direct: directUrl,
-    html: isAudio
-      ? `<audio controls src="${directUrl}"></audio>`
-      : isVideo
-      ? `<video controls src="${directUrl}"></video>`
-      : `<img src="${directUrl}" alt="${item.originalName || 'media'}" />`,
-    markdown: isImage
-      ? `![${item.originalName || 'media'}](${directUrl})`
-      : `[${item.originalName || 'Stream Media'}](${directUrl})`,
   };
 
   return (
     <div className="bg-slate-800/90 border border-slate-700 rounded-3xl p-4 sm:p-6 shadow-2xl backdrop-blur-md space-y-6">
-      {/* Top Header with prominent Copy & "X" Delete icons */}
+      {/* Header Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-700/80">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
-            {isAudio ? <Music className="w-5 h-5" /> : isVideo ? <Video className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />}
+            {item.mediaType === 'audio' ? <Music className="w-5 h-5" /> : item.mediaType === 'video' ? <Video className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />}
           </div>
           <div className="min-w-0">
-            <h3 className="text-base font-bold text-white truncate" title={item.originalName}>
-              {item.originalName}
+            <h3 className="text-base font-bold text-white truncate" title={item.originalName || item.filename}>
+              {item.originalName || item.filename}
             </h3>
             <p className="text-xs text-slate-400 font-mono">
-              {formatFileSize(item.size)} · {item.mediaType.toUpperCase()}
-              {mediaDuration > 0 && ` · ${formatDuration(mediaDuration)}`}
+              {formatFileSize(item.size)} · {item.format || item.mediaType.toUpperCase()} · Folder: <span className="text-emerald-400">{item.folder || 'public'}</span>
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => copyUrl('header-copy', directUrl)}
+            onClick={() => copyUrl('header-copy', persistentUrl)}
             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
-            title="Copy Direct URL"
           >
             {copiedKey === 'header-copy' ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
-            <span>{copiedKey === 'header-copy' ? 'Copied!' : 'Copy Link'}</span>
+            <span>{copiedKey === 'header-copy' ? 'Copied' : 'Copy URL'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsRenameOpen(true)}
+            className="p-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl transition-colors cursor-pointer"
+            title="Rename File"
+          >
+            <Edit3 className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsMoveOpen(true)}
+            className="p-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl transition-colors cursor-pointer"
+            title="Move to Folder"
+          >
+            <FolderInput className="w-4 h-4" />
           </button>
 
           <button
@@ -151,74 +149,37 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
           </button>
 
           <a
-            href={playerUrl}
+            href={persistentUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="p-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl transition-colors"
-            title="Open Player in New Tab"
+            title="Open in New Tab"
           >
             <ExternalLink className="w-4 h-4" />
           </a>
 
-          {/* "X" Delete Icon with Confirmation */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(!showDeleteConfirm)}
-              className={`p-2 rounded-xl transition-colors cursor-pointer ${
-                showDeleteConfirm ? 'bg-rose-600 text-white' : 'bg-slate-700/80 hover:bg-rose-600 text-slate-300 hover:text-white'
-              }`}
-              title="Delete File (X)"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            {showDeleteConfirm && (
-              <div className="absolute right-0 top-full mt-2 w-64 bg-slate-900 border border-rose-500/40 rounded-2xl p-3 shadow-2xl z-30 text-left animate-in fade-in zoom-in-95">
-                <div className="flex items-center gap-1.5 text-rose-400 font-bold text-xs mb-1">
-                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                  <span>Delete This Media?</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mb-3">
-                  This revokes the direct link and removes it permanently from your storage.
-                </p>
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowDeleteConfirm(false)}
-                    className="px-2.5 py-1 text-xs text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowDeleteConfirm(false);
-                      onDeleteItem(item.id);
-                    }}
-                    className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold cursor-pointer"
-                  >
-                    Confirm Delete
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => onDeleteItem(item)}
+            className="p-2 bg-slate-700/80 hover:bg-rose-600 text-slate-200 hover:text-white rounded-xl transition-colors cursor-pointer"
+            title="Delete File"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      {/* Interactive Media Preview Section */}
+      {/* Media Preview Section */}
       <div className="bg-slate-900/80 rounded-2xl border border-slate-700/70 p-4">
-        {isAudio && (
+        {item.mediaType === 'audio' && (
           <div className="space-y-3">
             <audio
               ref={audioRef}
-              src={directUrl}
-              onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={handleLoadedMetadata}
+              src={persistentUrl}
+              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
               onEnded={() => setIsPlaying(false)}
               muted={isMuted}
-              preload="metadata"
             />
             <div className="flex items-center gap-3">
               <button
@@ -233,15 +194,19 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
                 <input
                   type="range"
                   min="0"
-                  max={mediaDuration > 0 ? mediaDuration : 100}
+                  max={duration > 0 ? duration : 100}
                   step="0.1"
                   value={currentTime}
-                  onChange={handleSeek}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    setCurrentTime(val);
+                    if (audioRef.current) audioRef.current.currentTime = val;
+                  }}
                   className="w-full accent-emerald-400 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
                 />
                 <div className="flex justify-between text-[11px] font-mono text-slate-400">
                   <span>{formatDuration(currentTime)}</span>
-                  <span>{formatDuration(mediaDuration)}</span>
+                  <span>{formatDuration(duration)}</span>
                 </div>
               </div>
 
@@ -249,7 +214,6 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
                 type="button"
                 onClick={() => setIsMuted(!isMuted)}
                 className="p-2 text-slate-400 hover:text-white transition-colors cursor-pointer"
-                title={isMuted ? 'Unmute' : 'Mute'}
               >
                 {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
               </button>
@@ -257,100 +221,133 @@ export const UrlShareCard: React.FC<UrlShareCardProps> = ({
           </div>
         )}
 
-        {isVideo && (
+        {item.mediaType === 'video' && (
           <div className="rounded-xl overflow-hidden bg-black max-h-80 flex items-center justify-center">
-            <video
-              src={directUrl}
-              controls
-              className="max-h-80 w-auto max-w-full rounded-xl"
-              preload="metadata"
-            />
+            <video src={persistentUrl} controls className="max-h-80 w-auto max-w-full rounded-xl" preload="metadata" />
           </div>
         )}
 
-        {isImage && (
+        {item.mediaType === 'image' && (
           <div className="rounded-xl overflow-hidden bg-slate-950 max-h-80 flex items-center justify-center p-2">
-            <img
-              src={directUrl}
-              alt={item.originalName || 'Preview'}
-              className="max-h-76 w-auto max-w-full object-contain rounded-lg"
-              loading="lazy"
-            />
+            <img src={persistentUrl} alt={item.originalName} className="max-h-76 w-auto max-w-full object-contain rounded-lg" loading="lazy" />
           </div>
         )}
       </div>
 
-      {/* Direct URL Box */}
-      <div className="space-y-2">
-        <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-          <span>Direct Streamable URL (Permanent CDN)</span>
-          <span className="text-[10px] text-emerald-400 font-mono">HTTP 206 Byte-Range Enabled</span>
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            readOnly
-            value={directUrl}
-            className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-emerald-300 truncate focus:outline-none focus:ring-1 focus:ring-emerald-500 select-all"
-          />
-          <button
-            type="button"
-            onClick={() => copyUrl('direct-box', directUrl)}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95 shrink-0"
-          >
-            {copiedKey === 'direct-box' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-            <span>{copiedKey === 'direct-box' ? 'Copied' : 'Copy'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Embed Code Snippets */}
-      <div className="space-y-2 pt-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 bg-slate-900/60 p-0.5 rounded-lg border border-slate-700 text-xs">
+      {/* Direct URL, Markdown, HTML, BBCode Tabs */}
+      <div className="space-y-3 pt-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1 bg-slate-900/60 p-0.5 rounded-xl border border-slate-700 text-xs">
             <button
               type="button"
               onClick={() => setEmbedTab('direct')}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                embedTab === 'direct' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
+              className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                embedTab === 'direct' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Direct Link
-            </button>
-            <button
-              type="button"
-              onClick={() => setEmbedTab('html')}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                embedTab === 'html' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              HTML Embed
+              Direct URL
             </button>
             <button
               type="button"
               onClick={() => setEmbedTab('markdown')}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                embedTab === 'markdown' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
+              className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                embedTab === 'markdown' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               Markdown
+            </button>
+            <button
+              type="button"
+              onClick={() => setEmbedTab('html')}
+              className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                embedTab === 'html' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              HTML
+            </button>
+            <button
+              type="button"
+              onClick={() => setEmbedTab('bbcode')}
+              className={`px-3 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                embedTab === 'bbcode' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              BBCode
             </button>
           </div>
 
           <button
             type="button"
-            onClick={() => copyUrl('embed-snippet', embedCodes[embedTab])}
-            className="text-xs text-slate-400 hover:text-emerald-400 transition-colors flex items-center gap-1 cursor-pointer"
+            onClick={() => copyUrl(embedTab, embedCodes[embedTab])}
+            className="text-xs text-slate-400 hover:text-emerald-400 transition-colors flex items-center gap-1 cursor-pointer font-medium"
           >
-            {copiedKey === 'embed-snippet' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copiedKey === 'embed-snippet' ? 'Copied Snippet' : 'Copy Snippet'}</span>
+            {copiedKey === embedTab ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiedKey === embedTab ? 'Copied' : `Copy ${embedTab.toUpperCase()}`}</span>
           </button>
         </div>
 
-        <pre className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-300 overflow-x-auto select-all">
+        <pre className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-emerald-300 overflow-x-auto select-all">
           <code>{embedCodes[embedTab]}</code>
         </pre>
       </div>
+
+      {/* Rename Dialog */}
+      {isRenameOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <form onSubmit={handleRenameSubmit} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 max-w-sm w-full space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h4 className="text-sm font-bold text-white">Rename Media Record</h4>
+              <button type="button" onClick={() => setIsRenameOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              placeholder="Filename"
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setIsRenameOpen(false)} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold">
+                Save
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Move Folder Dialog */}
+      {isMoveOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <form onSubmit={handleMoveSubmit} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 max-w-sm w-full space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h4 className="text-sm font-bold text-white">Move to Folder</h4>
+              <button type="button" onClick={() => setIsMoveOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <input
+              type="text"
+              value={moveValue}
+              onChange={(e) => setMoveValue(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              placeholder="Folder name (e.g. public, Music, Projects)"
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setIsMoveOpen(false)} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold">
+                Move
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

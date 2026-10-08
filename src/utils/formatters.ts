@@ -1,3 +1,5 @@
+import { MediaItem } from '../types';
+
 export function formatDuration(seconds?: number | null): string {
   if (seconds === undefined || seconds === null || isNaN(seconds) || seconds < 0) {
     return '0:00';
@@ -5,16 +7,6 @@ export function formatDuration(seconds?: number | null): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-}
-
-export function formatTimecode(seconds?: number | null): string {
-  if (seconds === undefined || seconds === null || isNaN(seconds) || seconds < 0) {
-    return '00:00.0';
-  }
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  const tenths = Math.floor((seconds % 1) * 10);
-  return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}.${tenths}`;
 }
 
 export function formatFileSize(bytes?: number | null): string {
@@ -55,21 +47,39 @@ export function formatRelativeTime(isoString: string): string {
   }
 }
 
-export function formatExpiryLabel(expiresAt?: string): { label: string; isPermanent: boolean; isExpired: boolean } {
-  if (!expiresAt) {
-    return { label: 'Permanent', isPermanent: true, isExpired: false };
+export interface EmbedCodes {
+  direct: string;
+  markdown: string;
+  html: string;
+  bbcode: string;
+}
+
+export function generateEmbedCodes(item: MediaItem): EmbedCodes {
+  const url = item.downloadURL || item.directUrl;
+  const name = item.filename || item.originalName || 'media';
+
+  if (item.mediaType === 'image') {
+    return {
+      direct: url,
+      markdown: `![${name}](${url})`,
+      html: `<img src="${url}" alt="${name}" loading="lazy" />`,
+      bbcode: `[img]${url}[/img]`,
+    };
+  } else if (item.mediaType === 'video') {
+    return {
+      direct: url,
+      markdown: `[Watch ${name}](${url})`,
+      html: `<video controls src="${url}"><a href="${url}">Watch video</a></video>`,
+      bbcode: `[url=${url}]${name}[/url]`,
+    };
+  } else {
+    return {
+      direct: url,
+      markdown: `[Listen to ${name}](${url})`,
+      html: `<audio controls src="${url}"><a href="${url}">Play audio</a></audio>`,
+      bbcode: `[url=${url}]${name}[/url]`,
+    };
   }
-  const msRemaining = new Date(expiresAt).getTime() - Date.now();
-  if (msRemaining <= 0) {
-    return { label: 'Expired', isPermanent: false, isExpired: true };
-  }
-  const hoursRemaining = Math.ceil(msRemaining / (1000 * 60 * 60));
-  if (hoursRemaining >= 24) {
-    const days = Math.floor(hoursRemaining / 24);
-    const hrs = hoursRemaining % 24;
-    return { label: `${days}d ${hrs}h Left`, isPermanent: false, isExpired: false };
-  }
-  return { label: `${hoursRemaining}h Left`, isPermanent: false, isExpired: false };
 }
 
 export async function copyToClipboard(text: string): Promise<boolean> {
