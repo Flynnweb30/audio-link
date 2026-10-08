@@ -2,31 +2,36 @@ export type MediaType = 'audio' | 'video' | 'image';
 
 export interface MediaItem {
   id: string;
-  documentId: string;
+  documentId?: string;
+  storagePath?: string;
+  downloadURL: string;
   filename: string;
   originalName: string;
-  storagePath: string;
-  downloadURL: string;
+  mimeType: string;
+  size: number;
+  format?: string;
+  folder?: string;
+  ownerId: string;
+  userId?: string;
+  userEmail?: string;
+  isGuest: boolean;
+  createdAt: string;
+  updatedAt: string;
+  status: 'processing' | 'ready' | 'failed' | 'deleted';
   directUrl: string;
   directAudioUrl?: string;
   playerUrl?: string;
-  mimeType: string;
-  size: number;
-  format: string;
-  mediaType: MediaType;
-  folder: string;
-  createdAt: string;
-  ownerId: string;
-  userId: string;
-  userEmail?: string;
-  isGuest: boolean;
-  status: 'ready' | 'processing' | 'error';
-  views?: number;
-  plays?: number;
-  downloads?: number;
+  storageUrl?: string;
+  dataUri?: string;
+  isPlaceholder?: boolean;
+  customSlug?: string;
+  expiresAt?: string;
   duration?: number;
   width?: number;
   height?: number;
+  views?: number;
+  plays?: number;
+  downloads?: number;
   metadata?: {
     duration?: number;
     bitrate?: number;
@@ -35,17 +40,17 @@ export interface MediaItem {
   };
 }
 
-export interface UserQuota {
-  allowedUploads: number;
+export interface UserTierLimits {
+  tierName: 'anonymous' | 'registered' | 'promotional';
+  maxUploads: number;
   usedUploads: number;
   remainingUploads: number;
   maxFileSizeBytes: number;
-  isAnonymous: boolean;
-  tierName: string;
+  desktopBonus: number;
 }
 
 export interface UploadProgress {
-  state: 'idle' | 'processing' | 'uploading' | 'verifying' | 'success' | 'error';
+  state: 'idle' | 'uploading' | 'verifying' | 'success' | 'error';
   percentage: number;
   errorMessage: string | null;
   uploadedMedia: MediaItem | null;
@@ -58,7 +63,7 @@ export interface BatchFileItem {
   file: File;
   name: string;
   size: number;
-  status: 'pending' | 'processing' | 'uploading' | 'completed' | 'error';
+  status: 'pending' | 'uploading' | 'completed' | 'error';
   progress: number;
   error?: string;
   result?: MediaItem;

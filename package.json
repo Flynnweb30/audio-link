@@ -1,20 +1,22 @@
 {
   "name": "audiolink-media-service",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "vite",
     "build": "vite build",
-    "start": "tsx server.ts",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "api:start": "tsx server.ts",
+    "start": "tsx server.ts",
+    "test": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.19.0",
@@ -27,6 +29,7 @@
     "vite": "^8.3.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/multer": "^2.3.0",
     "@types/node": "^22.14.0",

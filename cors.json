@@ -1,18 +1,21 @@
 [
   {
     "origin": [
+      "https://audiolink-media-converter.onrender.com",
+      "https://audiolink-media-api.onrender.com",
       "https://audiolink-oskn.onrender.com",
-      "https://audiolink-media-service.onrender.com",
       "http://localhost:5173",
-      "http://localhost:3000",
-      "http://localhost:4173"
+      "http://localhost:3000"
     ],
     "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
     "responseHeader": [
       "Content-Type",
+      "Access-Control-Allow-Origin",
+      "Access-Control-Allow-Headers",
       "Authorization",
       "Content-Length",
-      "User-Agent",
+      "Content-Range",
+      "Accept-Ranges",
       "x-goog-resumable"
     ],
     "maxAgeSeconds": 3600
