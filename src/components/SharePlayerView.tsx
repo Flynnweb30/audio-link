@@ -14,7 +14,8 @@ import {
   Loader2, 
   AlertCircle, 
   X,
-  RotateCcw 
+  RotateCcw,
+  UploadCloud 
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatFileSize, formatDuration, copyToClipboard } from '../utils/formatters';
@@ -77,7 +78,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     setLoading(true);
     setError(null);
 
-    // 1. Check built-in samples
+    // 1. Built-in sample check
     if (BUILTIN_SAMPLES[mediaId]) {
       const sampleItem = BUILTIN_SAMPLES[mediaId];
       setItem(sampleItem);
@@ -100,7 +101,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       }
     } catch {}
 
-    // 3. Fallback Self-Healing: Query Firebase Firestore directly
+    // 3. Self-Healing: Query Firestore for the record
     try {
       const firestoreRecord = await fetchRecordFromFirestore(mediaId);
       if (firestoreRecord) {
@@ -108,7 +109,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
         setDuration(Number(firestoreRecord?.duration ?? firestoreRecord?.metadata?.duration ?? 0));
         setLoading(false);
 
-        // Sync with backend server registry so future requests find it instantly
+        // Sync with server registry so subsequent accesses find it
         fetch('/api/media/sync-records', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -119,7 +120,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       }
     } catch {}
 
-    // 4. Truly not found
+    // 4. Truly not found anywhere
     setError('Media not found');
     setLoading(false);
   };
@@ -188,7 +189,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     );
   }
 
-  const directUrl = item.directUrl || item.storageUrl || `/media/${item.filename}`;
+  const directUrl = item.directUrl || item.storageUrl || `/media/${encodeURIComponent(item.filename)}`;
   const isAudio = item.mediaType === 'audio';
   const isVideo = item.mediaType === 'video';
   const isImage = item.mediaType === 'image';
@@ -301,14 +302,21 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
 
           {isImage && (
             <div className="rounded-2xl overflow-hidden bg-slate-950 max-h-96 flex items-center justify-center p-2">
-              <img src={directUrl} alt={item.originalName} className="max-h-92 w-auto object-contain rounded-xl" />
+              <img 
+                src={directUrl} 
+                alt={item.originalName} 
+                className="max-h-92 w-auto object-contain rounded-xl"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = `/media/${encodeURIComponent(item.filename)}`;
+                }}
+              />
             </div>
           )}
 
           <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3">
             <span className="text-xs text-slate-500 font-mono truncate select-all">{directUrl}</span>
             <a
-              href={item.storageUrl || `/api/media/${item.id}/download`}
+              href={item.storageUrl || `/api/media/${encodeURIComponent(item.id)}/download`}
               className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
               download={item.originalName}
             >

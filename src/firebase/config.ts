@@ -10,6 +10,7 @@ import {
   initializeFirestore, 
   Firestore
 } from 'firebase/firestore';
+import { getStorage, FirebaseStorage } from 'firebase/storage';
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBFF9m_6NidWN0HxpDG9TRjOLiytOgNbn4",
@@ -26,7 +27,6 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 
-// Use long-polling mode to prevent ad-blocker (uBlock/Brave) ERR_BLOCKED_BY_CLIENT on WebChannel
 let firestoreInstance: Firestore | null = null;
 try {
   firestoreInstance = initializeFirestore(app, {
@@ -39,8 +39,15 @@ try {
     firestoreInstance = null;
   }
 }
-
 export const db = firestoreInstance;
+
+let storageInstance: FirebaseStorage | null = null;
+try {
+  storageInstance = getStorage(app);
+} catch {
+  storageInstance = null;
+}
+export const storage = storageInstance;
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });

@@ -44,7 +44,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
   const [previewCopied, setPreviewCopied] = useState(false);
   const [previewDeleteConfirm, setPreviewDeleteConfirm] = useState(false);
 
-  // Group items by exact date categories matching Image 3: RECENT, THIS MONTH, OLDER
   const dateGroups = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -212,10 +211,8 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
       <div className="bg-white w-full max-w-5xl h-[88vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 text-slate-800">
-        {/* Top Header matching Images 2 & 3 */}
         <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70">
           <div className="flex items-center gap-3">
-            {/* Green tab switcher matching Images 2 & 3 */}
             <div className="flex items-center gap-1.5 p-0.5 bg-slate-200/60 rounded-lg">
               <button
                 type="button"
@@ -295,12 +292,9 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
           </div>
         </div>
 
-        {/* Modal Main Area: Left Sidebar + Table matching Images 2 & 3 */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Sidebar */}
           <aside className="w-48 sm:w-56 border-r border-slate-200 p-3 sm:p-4 bg-slate-50/40 overflow-y-auto shrink-0 select-none">
             {activeTab === 'folders' ? (
-              // Folders Hierarchy matching Image 2
               <div className="space-y-1.5">
                 <button
                   type="button"
@@ -337,7 +331,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                 </button>
               </div>
             ) : (
-              // Date Hierarchy matching Image 3: RECENT, THIS MONTH, OLDER
               <div className="space-y-4">
                 <button
                   type="button"
@@ -433,7 +426,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
             )}
           </aside>
 
-          {/* Main Table matching Images 2 & 3 */}
           <main className="flex-1 overflow-y-auto">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-white border-b border-slate-200 text-[11px] font-semibold text-slate-400 uppercase tracking-wider z-10">
@@ -464,16 +456,18 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                         onClick={() => setPreviewItem(item)}
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                       >
-                        {/* FILENAME column matching Image 2 & 3 */}
                         <td className="py-3 px-4 sm:px-6">
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
                               {item.mediaType === 'image' ? (
                                 <img
-                                  src={item.directUrl}
+                                  src={item.directUrl || `/media/${encodeURIComponent(item.filename)}`}
                                   alt=""
                                   className="w-full h-full object-cover"
                                   loading="lazy"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).src = `/media/${encodeURIComponent(item.filename)}`;
+                                  }}
                                 />
                               ) : item.mediaType === 'video' ? (
                                 <Video className="w-4 h-4 text-slate-700" />
@@ -493,7 +487,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           </div>
                         </td>
 
-                        {/* EXPIRY column with Cyan Permanent badge */}
                         <td className="py-3 px-4 text-center">
                           <span className={`inline-block border rounded-md px-2.5 py-0.5 text-[10px] font-medium leading-none ${
                             expiryInfo.isPermanent
@@ -506,7 +499,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           </span>
                         </td>
 
-                        {/* ACTIONS column with clean Copy button */}
                         <td className="py-3 px-4 text-center">
                           <div className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <button
@@ -563,7 +555,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           </div>
                         </td>
 
-                        {/* UPLOAD TIME column */}
                         <td className="py-3 px-4 sm:px-6 text-right font-mono text-[11px] text-slate-400">
                           {formatUploadTimeCol(item.createdAt)}
                         </td>
@@ -576,7 +567,6 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
           </main>
         </div>
 
-        {/* In-Modal Full Preview Dialog */}
         {previewItem && (
           <div 
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in"
@@ -682,13 +672,16 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
               <div className="p-4 overflow-y-auto flex-1 flex flex-col justify-center items-center bg-slate-50 min-h-[200px]">
                 {previewItem.mediaType === 'image' ? (
                   <img
-                    src={previewItem.directUrl}
+                    src={previewItem.directUrl || `/media/${encodeURIComponent(previewItem.filename)}`}
                     alt={previewItem.originalName}
                     className="max-h-72 w-auto object-contain rounded-xl shadow-xs border border-slate-200 bg-white"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = `/media/${encodeURIComponent(previewItem.filename)}`;
+                    }}
                   />
                 ) : previewItem.mediaType === 'video' ? (
                   <video
-                    src={previewItem.directUrl}
+                    src={previewItem.directUrl || `/media/${encodeURIComponent(previewItem.filename)}`}
                     controls
                     className="max-h-72 w-full rounded-xl bg-black shadow-xs"
                     preload="metadata"
@@ -700,7 +693,7 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                     </div>
                     <p className="text-xs font-semibold text-slate-700">{previewItem.originalName}</p>
                     <audio
-                      src={previewItem.directUrl}
+                      src={previewItem.directUrl || `/media/${encodeURIComponent(previewItem.filename)}`}
                       controls
                       className="w-full"
                       preload="metadata"

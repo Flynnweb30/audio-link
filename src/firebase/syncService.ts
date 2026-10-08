@@ -34,10 +34,6 @@ export function sanitizeForFirestore(item: MediaItem): Record<string, any> {
   return clean;
 }
 
-/**
- * Resilient Firestore sync: if an ad-blocker blocks Firestore, mutes gracefully
- * and relies on the server backend without throwing console errors.
- */
 export async function syncRecordToFirebase(item: MediaItem, user?: User | null): Promise<boolean> {
   if (!db || !isFirestoreAccessible) return false;
   try {
@@ -82,9 +78,6 @@ export async function deleteRecordFromFirebase(id: string): Promise<boolean> {
   }
 }
 
-/**
- * Fallback self-healing: retrieves record from Firestore if available
- */
 export async function fetchRecordFromFirestore(id: string): Promise<MediaItem | null> {
   if (!db || !isFirestoreAccessible) return null;
   try {
