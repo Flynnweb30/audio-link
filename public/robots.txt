@@ -2,8 +2,9 @@ User-agent: *
 Allow: /
 Allow: /audio
 Allow: /video
+Allow: /video-studio
 Allow: /images
 Disallow: /api/
 Disallow: /*?view=*
 
-Sitemap: https://audiolink-oskn.onrender.com/sitemap.xml
+Sitemap: https://audiolink-media-converter.onrender.com/sitemap.xml

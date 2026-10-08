@@ -11,11 +11,14 @@ import {
   Music, 
   Video, 
   Trash2, 
+  Edit3, 
+  FolderInput,
   FileSpreadsheet,
-  Clock
+  Image as ImageIcon 
 } from 'lucide-react';
 import { MediaItem } from '../types';
-import { formatFileSize, copyToClipboard } from '../utils/formatters';
+import { formatFileSize, formatRelativeTime, copyToClipboard } from '../utils/formatters';
+import { renameMediaRecord, moveMediaRecord } from '../firebase/syncService';
 
 interface FullHistoryModalProps {
   items: MediaItem[];
@@ -34,123 +37,35 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'folders' | 'date'>('folders');
   const [selectedFolder, setSelectedFolder] = useState<string>('all');
-  const [selectedDateFilter, setSelectedDateFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [batchCopied, setBatchCopied] = useState(false);
 
-  const [previewItem, setPreviewItem] = useState<MediaItem | null>(null);
-  const [previewCopied, setPreviewCopied] = useState(false);
-  const [previewDeleteConfirm, setPreviewDeleteConfirm] = useState(false);
+  // Rename and Move Modals
+  const [editingItem, setEditingItem] = useState<MediaItem | null>(null);
+  const [newName, setNewName] = useState('');
+  const [movingItem, setMovingItem] = useState<MediaItem | null>(null);
+  const [targetFolder, setTargetFolder] = useState('');
 
-  // Group items by date matching Screenshot 3
-  const dateGroups = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-    const recent: { label: string; key: string; count: number }[] = [];
-    const thisMonth: { label: string; key: string; count: number }[] = [];
-    const older: { label: string; key: string; count: number }[] = [];
-
-    const map = new Map<string, { label: string; group: 'recent' | 'thisMonth' | 'older'; count: number }>();
-
-    items.forEach((item) => {
-      const d = new Date(item.createdAt);
-      const itemDate = new Date(d);
-      itemDate.setHours(0, 0, 0, 0);
-
-      const isToday = itemDate.getTime() === today.getTime();
-      const isYesterday = itemDate.getTime() === yesterday.getTime();
-      const isThisMonth = itemDate >= startOfMonth && !isToday && !isYesterday;
-
-      let key = '';
-      let label = '';
-      let group: 'recent' | 'thisMonth' | 'older' = 'older';
-
-      if (isToday) {
-        key = 'today';
-        label = 'Today';
-        group = 'recent';
-      } else if (isYesterday) {
-        key = 'yesterday';
-        label = 'Yesterday';
-        group = 'recent';
-      } else if (isThisMonth) {
-        const monthShort = d.toLocaleDateString('en-US', { month: 'short' });
-        key = `${monthShort}_${d.getDate()}`;
-        label = `${monthShort} ${d.getDate()}`;
-        group = 'thisMonth';
-      } else {
-        const monthShort = d.toLocaleDateString('en-US', { month: 'short' });
-        key = `${monthShort}_${d.getDate()}_${d.getFullYear()}`;
-        label = `${monthShort} ${d.getDate()}, ${d.getFullYear()}`;
-        group = 'older';
-      }
-
-      if (!map.has(key)) {
-        map.set(key, { label, group, count: 1 });
-      } else {
-        map.get(key)!.count += 1;
-      }
-    });
-
-    map.forEach((val, key) => {
-      if (val.group === 'recent') recent.push({ label: val.label, key, count: val.count });
-      else if (val.group === 'thisMonth') thisMonth.push({ label: val.label, key, count: val.count });
-      else older.push({ label: val.label, key, count: val.count });
-    });
-
-    return { recent, thisMonth, older };
+  const folders = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((i) => set.add(i.folder || 'public'));
+    return Array.from(set);
   }, [items]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        if (!item.originalName.toLowerCase().includes(q) && !(item.mimeType || '').toLowerCase().includes(q)) {
+        if (!item.filename.toLowerCase().includes(q) && !(item.format || '').toLowerCase().includes(q)) {
           return false;
         }
       }
-
-      if (activeTab === 'folders') {
-        if (selectedFolder === 'public') {
-          return item.folder === 'public';
-        }
-        return true;
-      } else {
-        if (selectedDateFilter === 'all') return true;
-
-        const d = new Date(item.createdAt);
-        const itemDate = new Date(d);
-        itemDate.setHours(0, 0, 0, 0);
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-
-        if (selectedDateFilter === 'today') {
-          return itemDate.getTime() === today.getTime();
-        }
-        if (selectedDateFilter === 'yesterday') {
-          return itemDate.getTime() === yesterday.getTime();
-        }
-
-        const monthShort = d.toLocaleDateString('en-US', { month: 'short' });
-        const keyThisMonth = `${monthShort}_${d.getDate()}`;
-        const keyOlder = `${monthShort}_${d.getDate()}_${d.getFullYear()}`;
-
-        return selectedDateFilter === keyThisMonth || selectedDateFilter === keyOlder;
+      if (activeTab === 'folders' && selectedFolder !== 'all') {
+        return (item.folder || 'public') === selectedFolder;
       }
+      return true;
     });
-  }, [items, activeTab, selectedFolder, selectedDateFilter, searchQuery]);
+  }, [items, activeTab, selectedFolder, searchQuery]);
 
   if (!isOpen) return null;
 
@@ -163,68 +78,31 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
     }
   };
 
-  const handleBatchCopyAll = async () => {
-    const allUrls = filteredItems.map((i) => i.directUrl).join('\n');
-    if (!allUrls) return;
-    const ok = await copyToClipboard(allUrls);
-    if (ok) {
-      setBatchCopied(true);
-      setTimeout(() => setBatchCopied(false), 2000);
-    }
+  const submitRename = async () => {
+    if (!editingItem || !newName.trim()) return;
+    await renameMediaRecord(editingItem.documentId || editingItem.id, newName.trim());
+    setEditingItem(null);
   };
 
-  const handleExportCsv = () => {
-    const headers = 'ID,Filename,Type,Size_Bytes,Created_At,Expires_At,Direct_URL\n';
-    const rows = filteredItems
-      .map(
-        (i) =>
-          `"${i.id}","${i.originalName}","${i.mediaType}",${i.size},"${i.createdAt}","${i.expiresAt || 'Permanent'}","${i.directUrl}"`
-      )
-      .join('\n');
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `audiolink_history_${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const formatUploadTimeCol = (isoString: string) => {
-    try {
-      const d = new Date(isoString);
-      const now = new Date();
-      const isToday = d.toDateString() === now.toDateString();
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const isYesterday = d.toDateString() === yesterday.toDateString();
-
-      const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-      if (isToday) return timeStr;
-      if (isYesterday) return `Yesterday ${timeStr}`;
-      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-    } catch {
-      return 'Recently';
-    }
+  const submitMove = async () => {
+    if (!movingItem || !targetFolder.trim()) return;
+    await moveMediaRecord(movingItem.documentId || movingItem.id, targetFolder.trim());
+    setMovingItem(null);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white w-full max-w-5xl h-[88vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 text-slate-800">
-        {/* Top Control Bar */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+      <div className="bg-white w-full max-w-5xl h-[88vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 text-slate-800">
+        {/* Header */}
         <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70">
           <div className="flex items-center gap-3">
-            {/* Pill tabs matching Screenshots 2 & 3 */}
-            <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 rounded-xl border border-slate-300/60">
+            <div className="flex items-center gap-1.5 p-0.5 bg-slate-200/60 rounded-lg">
               <button
                 type="button"
-                onClick={() => {
-                  setActiveTab('folders');
-                  setSelectedFolder('all');
-                }}
-                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                onClick={() => { setActiveTab('folders'); setSelectedFolder('all'); }}
+                className={`px-3.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                   activeTab === 'folders'
-                    ? 'bg-white text-emerald-700 shadow-xs border border-emerald-300'
+                    ? 'bg-white text-emerald-700 shadow-2xs border border-emerald-400/60'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -232,13 +110,10 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setActiveTab('date');
-                  setSelectedDateFilter('all');
-                }}
-                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                onClick={() => setActiveTab('date')}
+                className={`px-3.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                   activeTab === 'date'
-                    ? 'bg-white text-emerald-700 shadow-xs border border-emerald-300'
+                    ? 'bg-white text-emerald-700 shadow-2xs border border-emerald-400/60'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -250,251 +125,122 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search history..."
+                placeholder="Search files..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-48 shadow-2xs"
+                className="text-xs pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-48"
               />
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {filteredItems.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={handleBatchCopyAll}
-                  className="px-3 py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                  title="Copy all filtered direct URLs"
-                >
-                  {batchCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{batchCopied ? 'Copied All' : 'Copy All URLs'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleExportCsv}
-                  className="px-3 py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                  title="Export to CSV"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="hidden sm:inline">Export CSV</span>
-                </button>
-              </>
-            )}
-
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
-              title="Close Library (X)"
+              className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Modal Layout matching Screenshots 2 & 3 */}
+        {/* Body */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Sidebar */}
-          <aside className="w-48 sm:w-56 border-r border-slate-200 p-3 sm:p-4 bg-slate-50/50 overflow-y-auto shrink-0 select-none">
-            {activeTab === 'folders' ? (
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  onClick={() => setSelectedFolder('all')}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    selectedFolder === 'all'
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Folder className={`w-4 h-4 ${selectedFolder === 'all' ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    <span>All Files</span>
-                  </div>
-                  <span className="font-mono text-[11px] text-slate-500">{items.length}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedFolder('public')}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
-                    selectedFolder === 'public'
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <FolderOpen className={`w-4 h-4 ${selectedFolder === 'public' ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    <span>public</span>
-                  </div>
-                  <span className="font-mono text-[11px] text-slate-400">
-                    {items.filter((i) => i.folder === 'public').length}
-                  </span>
-                </button>
+          {/* Folders Sidebar */}
+          <aside className="w-48 sm:w-56 border-r border-slate-200 p-3 sm:p-4 bg-slate-50/40 overflow-y-auto shrink-0 select-none space-y-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedFolder('all')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                selectedFolder === 'all'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs'
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Folder className="w-4 h-4 text-emerald-600" />
+                <span>All Files</span>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDateFilter('all')}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    selectedDateFilter === 'all'
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Calendar className={`w-4 h-4 ${selectedDateFilter === 'all' ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    <span>All Dates</span>
-                  </div>
-                  <span className="font-mono text-[11px] text-slate-500">{items.length}</span>
-                </button>
+              <span className="font-mono text-[11px] text-slate-500">{items.length}</span>
+            </button>
 
-                {dateGroups.recent.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">
-                      Recent
-                    </p>
-                    <div className="space-y-0.5">
-                      {dateGroups.recent.map((d) => (
-                        <button
-                          key={d.key}
-                          type="button"
-                          onClick={() => setSelectedDateFilter(d.key)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                            selectedDateFilter === d.key
-                              ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
-                              : 'text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span>{d.label}</span>
-                          <span className="font-mono text-[11px] text-slate-400">{d.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {dateGroups.thisMonth.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">
-                      This Month
-                    </p>
-                    <div className="space-y-0.5">
-                      {dateGroups.thisMonth.map((d) => (
-                        <button
-                          key={d.key}
-                          type="button"
-                          onClick={() => setSelectedDateFilter(d.key)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                            selectedDateFilter === d.key
-                              ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
-                              : 'text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span>{d.label}</span>
-                          <span className="font-mono text-[11px] text-slate-400">{d.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {dateGroups.older.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">
-                      Older
-                    </p>
-                    <div className="space-y-0.5">
-                      {dateGroups.older.map((d) => (
-                        <button
-                          key={d.key}
-                          type="button"
-                          onClick={() => setSelectedDateFilter(d.key)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                            selectedDateFilter === d.key
-                              ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
-                              : 'text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span>{d.label}</span>
-                          <span className="font-mono text-[11px] text-slate-400">{d.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {folders.map((fld) => (
+              <button
+                key={fld}
+                type="button"
+                onClick={() => setSelectedFolder(fld)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                  selectedFolder === fld
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-slate-400" />
+                  <span>{fld}</span>
+                </div>
+                <span className="font-mono text-[11px] text-slate-400">
+                  {items.filter((i) => (i.folder || 'public') === fld).length}
+                </span>
+              </button>
+            ))}
           </aside>
 
-          {/* Table matching Screenshots 2 & 3 */}
+          {/* Table */}
           <main className="flex-1 overflow-y-auto">
             <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 bg-white border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <thead className="sticky top-0 bg-white border-b border-slate-200 text-[11px] font-semibold text-slate-400 uppercase tracking-wider z-10">
                 <tr>
-                  <th className="py-3 px-4 sm:px-6">Filename</th>
-                  <th className="py-3 px-4 text-center">Expiry</th>
-                  <th className="py-3 px-4 text-center">Actions</th>
-                  <th className="py-3 px-4 sm:px-6 text-right">Upload Time</th>
+                  <th className="py-3 px-4 sm:px-6">FILENAME</th>
+                  <th className="py-3 px-4 text-center">STORAGE</th>
+                  <th className="py-3 px-4 text-center">ACTIONS</th>
+                  <th className="py-3 px-4 sm:px-6 text-right">DATE</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {filteredItems.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="py-16 text-center text-slate-400">
-                      No media files stored yet.
+                      No media files stored in this folder.
                     </td>
                   </tr>
                 ) : (
                   filteredItems.map((item) => {
-                    const isCopied = copiedId === item.id;
-                    const isConfirmingDelete = deleteConfirmId === item.id;
-                    const ext = (item.originalName.split('.').pop() || 'FILE').toUpperCase();
+                    const isCopied = copiedId === (item.documentId || item.id);
+                    const directUrl = item.downloadURL || item.directUrl;
 
                     return (
                       <tr
-                        key={item.id}
-                        onClick={() => setPreviewItem(item)}
-                        className="hover:bg-slate-50/90 transition-colors cursor-pointer group"
+                        key={item.documentId || item.id}
+                        onClick={() => onSelectItem(item)}
+                        className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                       >
                         <td className="py-3 px-4 sm:px-6">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-0.5">
+                            <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
                               {item.mediaType === 'image' ? (
-                                <img
-                                  src={item.directUrl}
-                                  alt=""
-                                  className="w-full h-full object-cover rounded"
-                                  loading="lazy"
-                                />
+                                <img src={directUrl} alt="" className="w-full h-full object-cover" />
                               ) : item.mediaType === 'video' ? (
-                                <Video className="w-5 h-5 text-rose-500" />
+                                <Video className="w-4 h-4 text-slate-700" />
                               ) : (
-                                <Music className="w-5 h-5 text-indigo-600" />
+                                <Music className="w-4 h-4 text-indigo-600" />
                               )}
                             </div>
 
                             <div className="min-w-0">
-                              <p className="font-bold text-slate-800 truncate max-w-xs sm:max-w-md group-hover:text-emerald-700 transition-colors">
-                                {item.originalName}
+                              <p className="font-semibold text-slate-900 truncate max-w-xs sm:max-w-md group-hover:text-emerald-700">
+                                {item.filename}
                               </p>
                               <p className="text-[11px] text-slate-400 font-mono">
-                                {formatFileSize(item.size)} · {ext}
+                                {formatFileSize(item.size)} · {item.format}
                               </p>
                             </div>
                           </div>
                         </td>
 
                         <td className="py-3 px-4 text-center">
-                          <span className={`inline-block border rounded-md px-2.5 py-0.5 text-[10px] font-bold leading-none ${
-                            item.expiresAt
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-sky-50 text-sky-600 border-sky-100'
-                          }`}>
-                            {item.expiresAt ? '48h Guest' : 'Permanent'}
+                          <span className="inline-block border rounded-md px-2.5 py-0.5 text-[10px] font-medium bg-sky-50 text-sky-600 border-sky-100">
+                            Firebase Cloud
                           </span>
                         </td>
 
@@ -502,60 +248,57 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
                           <div className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
-                              onClick={(e) => handleCopy(e, item.directUrl, item.id)}
-                              className={`px-3 py-1 rounded text-xs font-semibold border transition-colors cursor-pointer ${
+                              onClick={(e) => handleCopy(e, directUrl, item.documentId || item.id)}
+                              className={`px-3 py-1 rounded text-xs font-medium border transition-colors cursor-pointer ${
                                 isCopied
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                                  : 'bg-white text-slate-600 hover:text-slate-900 border-slate-200 hover:border-slate-300'
+                                  : 'bg-white text-slate-600 hover:text-slate-900 border-slate-200'
                               }`}
                             >
                               {isCopied ? 'Copied' : 'Copy'}
                             </button>
 
-                            {isConfirmingDelete ? (
-                              <div className="flex items-center gap-1 bg-red-50 p-0.5 rounded border border-red-200">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setDeleteConfirmId(null);
-                                    onDeleteItem(item.id);
-                                  }}
-                                  className="px-2 py-0.5 text-[11px] font-bold bg-red-600 hover:bg-red-700 text-white rounded cursor-pointer"
-                                >
-                                  Confirm
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteConfirmId(null)}
-                                  className="px-1.5 py-0.5 text-[11px] text-slate-600 hover:bg-slate-200 rounded cursor-pointer"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setDeleteConfirmId(item.id)}
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                                title="Delete File (X)"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => { setEditingItem(item); setNewName(item.filename); }}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
+                              title="Rename"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
 
                             <button
                               type="button"
-                              onClick={() => onSelectItem(item)}
-                              className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 cursor-pointer"
-                              title="Open Viewer"
+                              onClick={() => { setMovingItem(item); setTargetFolder(item.folder || 'public'); }}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
+                              title="Move Folder"
+                            >
+                              <FolderInput className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onDeleteItem(item.documentId || item.id)}
+                              className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50"
+                              title="Delete File"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+
+                            <a
+                              href={directUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
+                              title="Open in new tab"
                             >
                               <ExternalLink className="w-3.5 h-3.5" />
-                            </button>
+                            </a>
                           </div>
                         </td>
 
                         <td className="py-3 px-4 sm:px-6 text-right font-mono text-[11px] text-slate-400">
-                          {formatUploadTimeCol(item.createdAt)}
+                          {formatRelativeTime(item.createdAt)}
                         </td>
                       </tr>
                     );
@@ -565,162 +308,70 @@ export const FullHistoryModal: React.FC<FullHistoryModalProps> = ({
             </table>
           </main>
         </div>
+      </div>
 
-        {/* In-Modal Responsive Preview Dialog */}
-        {previewItem && (
-          <div 
-            className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in"
-            onClick={() => setPreviewItem(null)}
-          >
-            <div 
-              className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] animate-in zoom-in-95 text-slate-900"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-4 bg-slate-900 text-white flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      {previewItem.mediaType} Preview
-                    </span>
-                    <span className="text-xs text-slate-400 font-mono">
-                      {formatFileSize(previewItem.size)}
-                    </span>
-                    {previewItem.expiresAt && (
-                      <span className="text-[10px] font-semibold text-amber-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> 48h Retention
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="text-sm font-bold text-white truncate mt-1" title={previewItem.originalName}>
-                    {previewItem.originalName}
-                  </h3>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0 relative">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const success = await copyToClipboard(previewItem.directUrl);
-                      if (success) {
-                        setPreviewCopied(true);
-                        setTimeout(() => setPreviewCopied(false), 2000);
-                      }
-                    }}
-                    className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition-colors flex items-center gap-1.5 text-xs font-semibold cursor-pointer active:scale-95"
-                    title="Copy direct URL"
-                  >
-                    {previewCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-200" />}
-                    <span className="text-[11px] hidden sm:inline">{previewCopied ? 'Copied' : 'Copy'}</span>
-                  </button>
-
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDeleteConfirm(!previewDeleteConfirm)}
-                      className={`p-2 rounded-xl transition-colors cursor-pointer ${
-                        previewDeleteConfirm ? 'bg-red-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:bg-red-600 hover:text-white'
-                      }`}
-                      title="Delete media (X)"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-
-                    {previewDeleteConfirm && (
-                      <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-white border border-red-200 rounded-2xl shadow-2xl z-40 text-left animate-in fade-in zoom-in-95 text-slate-900">
-                        <p className="text-xs font-bold text-red-600 mb-1">Delete Media File?</p>
-                        <p className="text-[11px] text-slate-500 mb-3 leading-snug">Permanently deletes stored file and revokes direct URL.</p>
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setPreviewDeleteConfirm(false)}
-                            className="px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-md cursor-pointer"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const id = previewItem.id;
-                              setPreviewItem(null);
-                              setPreviewDeleteConfirm(false);
-                              onDeleteItem(id);
-                            }}
-                            className="px-3 py-1 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-md cursor-pointer inline-flex items-center gap-1"
-                          >
-                            Confirm Delete
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPreviewItem(null);
-                      setPreviewDeleteConfirm(false);
-                    }}
-                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
-                    title="Close Preview (X)"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-4 flex-1 flex flex-col justify-center items-center bg-slate-50 min-h-[220px]">
-                {previewItem.mediaType === 'image' ? (
-                  <img
-                    src={previewItem.directUrl}
-                    alt={previewItem.originalName}
-                    className="max-h-72 w-auto object-contain rounded-2xl shadow-xs border border-slate-200 bg-white"
-                  />
-                ) : previewItem.mediaType === 'video' ? (
-                  <video
-                    src={previewItem.directUrl}
-                    controls
-                    className="max-h-72 w-full rounded-2xl bg-black shadow-xs"
-                    preload="metadata"
-                  />
-                ) : (
-                  <div className="w-full bg-white p-6 rounded-2xl border border-slate-200 text-center space-y-3 shadow-xs">
-                    <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
-                      <Music className="w-6 h-6" />
-                    </div>
-                    <p className="text-xs font-semibold text-slate-700">{previewItem.originalName}</p>
-                    <audio
-                      src={previewItem.directUrl}
-                      controls
-                      className="w-full"
-                      preload="metadata"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div className="p-3 bg-white border-t border-slate-200 flex items-center justify-between gap-2.5">
-                <input
-                  type="text"
-                  readOnly
-                  value={previewItem.directUrl}
-                  className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-700 flex-1 truncate select-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const item = previewItem;
-                    setPreviewItem(null);
-                    onSelectItem(item);
-                  }}
-                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer shrink-0"
-                >
-                  Open in Studio
-                </button>
-              </div>
+      {/* Rename Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <h4 className="text-sm font-bold text-slate-900">Rename Media File</h4>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="w-full text-xs p-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <div className="flex justify-end gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setEditingItem(null)}
+                className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitRename}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold"
+              >
+                Save
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Move Folder Modal */}
+      {movingItem && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <h4 className="text-sm font-bold text-slate-900">Move to Folder</h4>
+            <input
+              type="text"
+              placeholder="e.g. public, work, archive"
+              value={targetFolder}
+              onChange={(e) => setTargetFolder(e.target.value)}
+              className="w-full text-xs p-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <div className="flex justify-end gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setMovingItem(null)}
+                className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitMove}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold"
+              >
+                Move
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

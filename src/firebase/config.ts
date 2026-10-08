@@ -3,15 +3,15 @@ import {
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
+  signInAnonymously,
   signOut as firebaseSignOut,
   User 
 } from 'firebase/auth';
 import { 
   initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager,
   Firestore
 } from 'firebase/firestore';
+import { getStorage, FirebaseStorage } from 'firebase/storage';
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBFF9m_6NidWN0HxpDG9TRjOLiytOgNbn4",
@@ -31,9 +31,7 @@ export const auth = getAuth(app);
 let firestoreInstance: Firestore | null = null;
 try {
   firestoreInstance = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    })
+    experimentalForceLongPolling: true,
   });
 } catch {
   try {
@@ -42,10 +40,30 @@ try {
     firestoreInstance = null;
   }
 }
-
 export const db = firestoreInstance;
+
+let storageInstance: FirebaseStorage | null = null;
+try {
+  storageInstance = getStorage(app);
+} catch {
+  storageInstance = null;
+}
+export const storage = storageInstance;
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+/**
+ * Ensures a valid Firebase auth identity exists.
+ * If user is not logged in, signs in anonymously so storage/firestore rules are satisfied.
+ */
+export async function ensureAuthenticatedUser(): Promise<User> {
+  if (auth.currentUser) {
+    return auth.currentUser;
+  }
+  const cred = await signInAnonymously(auth);
+  return cred.user;
+}
 
 export async function signInWithGoogle(): Promise<User> {
   try {
@@ -59,4 +77,6 @@ export async function signInWithGoogle(): Promise<User> {
 
 export async function signOutUser(): Promise<void> {
   await firebaseSignOut(auth);
+  // Re-establish anonymous session for guest quota tracking
+  await signInAnonymously(auth);
 }

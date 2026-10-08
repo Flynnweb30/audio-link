@@ -1,25 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://audiolink-oskn.onrender.com/</loc>
+    <loc>https://audiolink-media-converter.onrender.com/</loc>
     <lastmod>2026-10-07</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://audiolink-oskn.onrender.com/audio</loc>
+    <loc>https://audiolink-media-converter.onrender.com/audio</loc>
     <lastmod>2026-10-07</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://audiolink-oskn.onrender.com/video</loc>
+    <loc>https://audiolink-media-converter.onrender.com/video</loc>
     <lastmod>2026-10-07</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://audiolink-oskn.onrender.com/images</loc>
+    <loc>https://audiolink-media-converter.onrender.com/video-studio</loc>
+    <lastmod>2026-10-07</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://audiolink-media-converter.onrender.com/images</loc>
     <lastmod>2026-10-07</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>

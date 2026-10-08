@@ -6,19 +6,19 @@ import {
   VolumeX, 
   Copy, 
   Check, 
-  ExternalLink, 
   Download, 
-  ArrowLeft, 
   Radio, 
   Music, 
   Video, 
   Image as ImageIcon, 
   Loader2, 
   AlertCircle, 
-  X 
+  X,
+  RotateCcw 
 } from 'lucide-react';
 import { MediaItem } from '../types';
 import { formatFileSize, formatDuration, copyToClipboard } from '../utils/formatters';
+import { fetchMediaRecord } from '../firebase/syncService';
 
 interface SharePlayerViewProps {
   mediaId: string;
@@ -40,43 +40,29 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadMedia = async () => {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/media/${encodeURIComponent(mediaId)}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(res.status === 404 ? 'Media not found' : 'Failed to load media');
-        return res.json();
-      })
-      .then((data) => {
-        if (isMounted) {
-          const media = data?.item;
-          if (media) {
-            setItem(media);
-            setDuration(Number(media?.duration ?? media?.metadata?.duration ?? 0));
-          } else {
-            setError('Media file information is unavailable.');
-          }
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (isMounted) {
-          setError(err?.message || 'Error retrieving media.');
-          setLoading(false);
-        }
-      });
+    const record = await fetchMediaRecord(mediaId);
+    if (record) {
+      setItem(record);
+      setDuration(Number(record.duration ?? record.metadata?.duration ?? 0));
+      setLoading(false);
+    } else {
+      setError('Media item does not exist in Firestore database.');
+      setLoading(false);
+    }
+  };
 
-    return () => {
-      isMounted = false;
-    };
+  useEffect(() => {
+    loadMedia();
   }, [mediaId]);
 
   const handleCopy = async () => {
-    if (!item?.directUrl) return;
-    const ok = await copyToClipboard(item.directUrl);
+    const targetUrl = item?.downloadURL || item?.directUrl;
+    if (!targetUrl) return;
+    const ok = await copyToClipboard(targetUrl);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -89,9 +75,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play().then(() => {
-        setIsPlaying(true);
-      }).catch((e) => console.warn(e));
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
     }
   };
 
@@ -99,7 +83,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4">
         <Loader2 className="w-10 h-10 text-emerald-400 animate-spin mb-4" />
-        <p className="text-sm text-slate-400">Loading AudioLink Player...</p>
+        <p className="text-sm text-slate-400">Loading Persistent Media...</p>
       </div>
     );
   }
@@ -110,57 +94,65 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4">
           <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
           <h2 className="text-lg font-bold text-white">Media Link Unavailable</h2>
-          <p className="text-xs text-slate-400">{error || 'This media link does not exist or may have expired.'}</p>
-          <button
-            type="button"
-            onClick={onBackToHome}
-            className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-          >
-            Back to AudioLink Studio
-          </button>
+          <p className="text-xs text-slate-400">{error || 'Media not found'}</p>
+          <div className="flex flex-col gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onBackToHome}
+              className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+            >
+              Back to Media Converter
+            </button>
+            <button
+              type="button"
+              onClick={loadMedia}
+              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Retry</span>
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const directUrl = item.directUrl || `/media/${item.filename}`;
+  const directUrl = item.downloadURL || item.directUrl;
   const isAudio = item.mediaType === 'audio';
   const isVideo = item.mediaType === 'video';
   const isImage = item.mediaType === 'image';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Standalone Player Top Bar */}
       <header className="border-b border-slate-800 bg-slate-900/80 px-4 sm:px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3 cursor-pointer" onClick={onBackToHome}>
           <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center text-slate-950 font-bold">
             <Radio className="w-5 h-5" />
           </div>
-          <span className="font-bold text-sm tracking-tight text-white">AudioLink Player</span>
+          <span className="font-bold text-sm tracking-tight text-white">AudioLink Media Viewer</span>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleCopy}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 cursor-pointer"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied' : 'Copy Link'}</span>
+            <span>{copied ? 'Copied' : 'Copy URL'}</span>
           </button>
 
           <button
             type="button"
             onClick={onBackToHome}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
-            title="Close (X)"
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 cursor-pointer"
+            title="Close"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
       </header>
 
-      {/* Main Player Display */}
       <main className="flex-1 max-w-2xl w-full mx-auto p-4 sm:p-8 flex flex-col justify-center">
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
           <div className="flex items-center gap-3">
@@ -168,11 +160,11 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
               {isAudio ? <Music className="w-6 h-6" /> : isVideo ? <Video className="w-6 h-6" /> : <ImageIcon className="w-6 h-6" />}
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-lg font-bold text-white truncate" title={item.originalName}>
-                {item.originalName}
+              <h1 className="text-lg font-bold text-white truncate" title={item.filename}>
+                {item.filename}
               </h1>
               <p className="text-xs text-slate-400 font-mono">
-                {formatFileSize(item.size)} · {item.mediaType.toUpperCase()}
+                {formatFileSize(item.size)} · {item.format} · Firebase Cloud Storage
               </p>
             </div>
           </div>
@@ -192,7 +184,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
                 <button
                   type="button"
                   onClick={togglePlay}
-                  className="w-14 h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center transition-all cursor-pointer shadow-xl shadow-emerald-500/20 active:scale-95"
+                  className="w-14 h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center shadow-xl active:scale-95 cursor-pointer"
                 >
                   {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
                 </button>
@@ -206,7 +198,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
                     value={currentTime}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && audioRef.current) {
+                      if (audioRef.current) {
                         audioRef.current.currentTime = v;
                         setCurrentTime(v);
                       }
@@ -222,7 +214,7 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsMuted(!isMuted)}
-                  className="p-2.5 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  className="p-2.5 text-slate-400 hover:text-white cursor-pointer"
                 >
                   {isMuted ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5" />}
                 </button>
@@ -238,16 +230,18 @@ export const SharePlayerView: React.FC<SharePlayerViewProps> = ({
 
           {isImage && (
             <div className="rounded-2xl overflow-hidden bg-slate-950 max-h-96 flex items-center justify-center p-2">
-              <img src={directUrl} alt={item.originalName} className="max-h-92 w-auto object-contain rounded-xl" />
+              <img src={directUrl} alt={item.filename} className="max-h-92 w-auto object-contain rounded-xl" />
             </div>
           )}
 
           <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3">
             <span className="text-xs text-slate-500 font-mono truncate select-all">{directUrl}</span>
             <a
-              href={`/api/media/${item.id}/download`}
+              href={directUrl}
               className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
-              download
+              download={item.filename}
+              target="_blank"
+              rel="noreferrer"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Download</span>
