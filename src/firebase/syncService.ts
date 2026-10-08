@@ -12,12 +12,13 @@ import {
 } from 'firebase/firestore';
 import { 
   ref, 
+  uploadBytes,
   uploadBytesResumable, 
   getDownloadURL, 
   deleteObject 
 } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { db, storage } from './config';
+import { db, storage, ensureFirebaseAuth } from './config';
 import { MediaItem, UserQuotaStats } from '../types';
 import { processAndStripExif } from '../utils/imageProcessor';
 
@@ -74,7 +75,7 @@ function detectFormatName(filename: string, mime: string): string {
 
 /**
  * Single Centralized Media Workflow:
- * Upload → Process → Firebase Storage → Verify → Generate Persistent URL → Firestore → Ready
+ * Upload -> Process -> Firebase Storage -> Verify -> Persistent URL -> Firestore -> Ready
  */
 export async function uploadMediaFileToFirebase(
   file: File,
@@ -89,10 +90,13 @@ export async function uploadMediaFileToFirebase(
 
   // 1. Enforce Free Hosting File Size Limit (5 MB)
   if (file.size > QUOTA_CONFIG.maxFileSizeBytes) {
-    throw new Error(`File "${file.name}" (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the free maximum limit of ${QUOTA_CONFIG.maxFileSizeLabel}.`);
+    throw new Error(`File "${file.name}" (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the maximum free limit of ${QUOTA_CONFIG.maxFileSizeLabel}.`);
   }
 
-  // 2. Media Processing: Strip EXIF metadata for images by default
+  // Ensure authenticated session to pass storage security rules
+  await ensureFirebaseAuth();
+
+  // 2. Media Processing: Strip EXIF metadata for images
   let uploadBlob: Blob = file;
   let uploadMime = file.type || 'application/octet-stream';
   let exifStripped = false;
@@ -115,42 +119,53 @@ export async function uploadMediaFileToFirebase(
   const finalFilename = `${baseName}_${uniqueId}${fileExt}`;
   const storagePath = `media/${ownerId}/${finalFilename}`;
 
-  // 4. Firebase Storage Upload
+  // 4. Firebase Storage Upload (Atomic upload with content type, minimal headers to prevent CORS issues)
   const storageRef = ref(storage, storagePath);
   const metadata = {
     contentType: uploadMime,
-    customMetadata: {
-      ownerId,
-      originalName: file.name,
-      folder,
-    },
   };
 
-  const uploadTask = uploadBytesResumable(storageRef, uploadBlob, metadata);
+  if (onProgress) onProgress(15);
 
-  await new Promise<void>((resolve, reject) => {
-    uploadTask.on(
-      'state_changed',
-      (snapshot) => {
-        if (snapshot.totalBytes > 0 && onProgress) {
-          const percent = Math.min(95, Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 90) + 5);
-          onProgress(percent);
-        }
-      },
-      (error) => reject(error),
-      () => resolve()
-    );
-  });
+  let downloadURL = '';
+  try {
+    // Attempt standard uploadBytes
+    const snapshot = await uploadBytes(storageRef, uploadBlob, metadata);
+    if (onProgress) onProgress(80);
+    downloadURL = await getDownloadURL(snapshot.ref);
+  } catch (err: any) {
+    // Fallback attempt via uploadBytesResumable
+    try {
+      const uploadTask = uploadBytesResumable(storageRef, uploadBlob, metadata);
+      await new Promise<void>((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            if (snapshot.totalBytes > 0 && onProgress) {
+              const p = Math.min(90, Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 85) + 5);
+              onProgress(p);
+            }
+          },
+          (e) => reject(e),
+          () => resolve()
+        );
+      });
+      downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+    } catch (innerErr: any) {
+      const msg = innerErr?.message || err?.message || 'Storage upload error';
+      if (msg.includes('CORS') || msg.includes('preflight') || msg.includes('network')) {
+        throw new Error('Firebase Storage CORS preflight rejected by bucket. Apply cors.json to bucket using gsutil or Cloud Shell.');
+      }
+      throw new Error(msg);
+    }
+  }
 
-  if (onProgress) onProgress(96);
-
-  // 5. Generate and Verify Persistent Download URL
-  const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+  // 5. Verify Persistent URL
   if (!downloadURL || !downloadURL.startsWith('http')) {
     throw new Error('Failed to generate a verified persistent download URL from Firebase Storage.');
   }
 
-  if (onProgress) onProgress(98);
+  if (onProgress) onProgress(95);
 
   // 6. Firestore Metadata Record Persistence
   const mediaDocId = uniqueId;
@@ -191,60 +206,43 @@ export async function uploadMediaFileToFirebase(
   return mediaRecord;
 }
 
-/**
- * Renames a media file record in Firestore
- */
 export async function renameMediaRecordInFirestore(documentId: string, newOriginalName: string): Promise<boolean> {
   if (!db || !documentId || !newOriginalName.trim()) return false;
   try {
     const docRef = doc(db, 'media', documentId);
-    await updateDoc(docRef, {
-      originalName: newOriginalName.trim(),
-    });
+    await updateDoc(docRef, { originalName: newOriginalName.trim() });
     return true;
   } catch {
     return false;
   }
 }
 
-/**
- * Moves a media record to a different folder in Firestore
- */
 export async function moveMediaRecordFolderInFirestore(documentId: string, newFolder: string): Promise<boolean> {
   if (!db || !documentId) return false;
   try {
     const docRef = doc(db, 'media', documentId);
-    await updateDoc(docRef, {
-      folder: newFolder.trim() || 'public',
-    });
+    await updateDoc(docRef, { folder: newFolder.trim() || 'public' });
     return true;
   } catch {
     return false;
   }
 }
 
-/**
- * Permanently deletes media file from Firebase Storage AND document from Firestore
- */
 export async function deleteMediaRecordFromFirebase(item: MediaItem): Promise<boolean> {
   if (!db) return false;
   let storageDeleted = false;
   let firestoreDeleted = false;
 
-  // 1. Delete physical object from Firebase Storage
   if (storage && item.storagePath) {
     try {
       const storageRef = ref(storage, item.storagePath);
       await deleteObject(storageRef);
       storageDeleted = true;
     } catch (err: any) {
-      if (err?.code === 'storage/object-not-found') {
-        storageDeleted = true;
-      }
+      if (err?.code === 'storage/object-not-found') storageDeleted = true;
     }
   }
 
-  // 2. Delete metadata document from Firestore
   const docId = item.documentId || item.id;
   if (docId) {
     try {
@@ -256,9 +254,6 @@ export async function deleteMediaRecordFromFirebase(item: MediaItem): Promise<bo
   return storageDeleted || firestoreDeleted;
 }
 
-/**
- * Subscribes to real-time updates for an owner's library records in Firestore
- */
 export function subscribeToOwnerMediaLibrary(
   ownerId: string,
   onUpdate: (items: MediaItem[]) => void,
@@ -299,9 +294,6 @@ export function subscribeToOwnerMediaLibrary(
   }
 }
 
-/**
- * Retrieves a single media item record from Firestore by ID
- */
 export async function fetchMediaRecordById(documentId: string): Promise<MediaItem | null> {
   if (!db || !documentId) return null;
   try {
