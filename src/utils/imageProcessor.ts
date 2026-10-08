@@ -1,53 +1,46 @@
 /**
- * Strips EXIF metadata from image files by rendering to an HTML5 Canvas
- * and re-encoding to the requested/original MIME format.
+ * Strips EXIF metadata by re-encoding via HTML5 Canvas and preserves requested format.
  */
-export async function processAndStripExif(file: File): Promise<{ blob: Blob; mimeType: string; extension: string }> {
-  const originalMime = file.type || 'image/jpeg';
-  const originalExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-
-  // SVG images are vector XML and do not use raster EXIF chunks
-  if (originalMime === 'image/svg+xml' || originalExt === 'svg') {
-    return { blob: file, mimeType: 'image/svg+xml', extension: 'svg' };
+export async function processImageFile(file: File, quality = 0.92): Promise<{ blob: Blob; mimeType: string }> {
+  // If not an image or SVG, return as-is
+  if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') {
+    return { blob: file, mimeType: file.type };
   }
 
   return new Promise((resolve) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
 
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve({ blob: file, mimeType: file.type });
+          return;
+        }
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve({ blob: file, mimeType: originalMime, extension: originalExt });
-        return;
-      }
+        ctx.drawImage(img, 0, 0);
 
-      ctx.drawImage(img, 0, 0);
-
-      const targetMime = originalMime === 'image/gif' ? 'image/png' : originalMime;
-      canvas.toBlob(
-        (blob) => {
-          if (blob && blob.size > 0) {
-            resolve({ blob, mimeType: targetMime, extension: originalExt });
-          } else {
-            resolve({ blob: file, mimeType: originalMime, extension: originalExt });
-          }
-        },
-        targetMime,
-        0.92
-      );
+        const targetMime = file.type || 'image/jpeg';
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve({ blob, mimeType: targetMime });
+            } else {
+              resolve({ blob: file, mimeType: file.type });
+            }
+          },
+          targetMime,
+          quality
+        );
+      };
+      img.onerror = () => resolve({ blob: file, mimeType: file.type });
+      img.src = e.target?.result as string;
     };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve({ blob: file, mimeType: originalMime, extension: originalExt });
-    };
-
-    img.src = objectUrl;
+    reader.onerror = () => resolve({ blob: file, mimeType: file.type });
+    reader.readAsDataURL(file);
   });
 }

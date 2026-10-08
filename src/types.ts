@@ -1,24 +1,29 @@
 export type MediaType = 'audio' | 'video' | 'image';
 
 export interface MediaItem {
-  id: string;              // Primary key / documentId
-  documentId: string;      // Firestore Document ID
-  storagePath: string;     // Firebase Storage object path
-  downloadURL: string;     // Verified permanent Firebase Storage HTTPS URL
-  directUrl: string;       // Direct URL alias
-  directAudioUrl?: string; // Audio direct alias
-  playerUrl?: string;      // In-app player URL
-  filename: string;        // Stored filename
-  originalName: string;    // Uploaded original filename
-  mimeType: string;        // MIME type
-  size: number;            // File size in bytes
-  format: string;          // Extension/format in uppercase (e.g., MP3, WEBP, MP4)
-  folder: string;          // Organizing folder (e.g., 'public', 'Work', etc.)
-  createdAt: string;       // ISO 8601 creation timestamp
-  ownerId: string;         // Firebase Auth UID or anonymous/guest ID
-  userEmail?: string;      // User email if logged in
-  status: 'ready' | 'uploading' | 'converting' | 'error';
+  id: string;
+  documentId: string;
+  filename: string;
+  originalName: string;
+  storagePath: string;
+  downloadURL: string;
+  directUrl: string;
+  directAudioUrl?: string;
+  playerUrl?: string;
+  mimeType: string;
+  size: number;
+  format: string;
+  mediaType: MediaType;
+  folder: string;
+  createdAt: string;
+  ownerId: string;
+  userId: string;
+  userEmail?: string;
   isGuest: boolean;
+  status: 'ready' | 'processing' | 'error';
+  views?: number;
+  plays?: number;
+  downloads?: number;
   duration?: number;
   width?: number;
   height?: number;
@@ -27,24 +32,20 @@ export interface MediaItem {
     bitrate?: number;
     format?: string;
     sampleRate?: number;
-    exifStripped?: boolean;
-    storageVerified?: boolean;
   };
 }
 
-export interface UserQuotaStats {
-  used: number;
-  limit: number;
-  remaining: number;
-  planName: string;
-  isRegistered: boolean;
-  bonusApplied: number;
+export interface UserQuota {
+  allowedUploads: number;
+  usedUploads: number;
+  remainingUploads: number;
   maxFileSizeBytes: number;
-  maxFileSizeLabel: string;
+  isAnonymous: boolean;
+  tierName: string;
 }
 
 export interface UploadProgress {
-  state: 'idle' | 'uploading' | 'converting' | 'verifying' | 'success' | 'error';
+  state: 'idle' | 'processing' | 'uploading' | 'verifying' | 'success' | 'error';
   percentage: number;
   errorMessage: string | null;
   uploadedMedia: MediaItem | null;
@@ -57,7 +58,7 @@ export interface BatchFileItem {
   file: File;
   name: string;
   size: number;
-  status: 'pending' | 'uploading' | 'converting' | 'completed' | 'error';
+  status: 'pending' | 'processing' | 'uploading' | 'completed' | 'error';
   progress: number;
   error?: string;
   result?: MediaItem;

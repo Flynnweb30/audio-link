@@ -1,13 +1,17 @@
 services:
   - type: static
     name: audiolink-media-converter
-    env: static
+    plan: free
     buildCommand: npm install --legacy-peer-deps && npm run build
-    staticPublishPath: ./dist
+    staticPublishPath: dist
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
     envVars:
       - key: VITE_FIREBASE_API_KEY
         sync: false

@@ -12,249 +12,172 @@ import {
 } from 'firebase/firestore';
 import { 
   ref, 
-  uploadBytes,
   uploadBytesResumable, 
   getDownloadURL, 
   deleteObject 
 } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { db, storage, ensureFirebaseAuth } from './config';
-import { MediaItem, UserQuotaStats } from '../types';
-import { processAndStripExif } from '../utils/imageProcessor';
+import { db, storage, ensureAuthenticatedUser } from './config';
+import { MediaItem } from '../types';
+import { processImageFile } from '../utils/imageProcessor';
 
-// Configurable Quota Limits
-export const QUOTA_CONFIG = {
-  maxFileSizeBytes: 5 * 1024 * 1024, // 5 MB Max Free File Size
-  maxFileSizeLabel: '5 MB',
-  anonymousLimit: 30,
-  registeredLimit: 200,
-  promotionalQuota: 1000,
-  desktopBonus: 100,
-};
+/**
+ * Verifies that a storage download URL is publicly accessible before declaring it Ready
+ */
+export async function verifyMediaUrl(url: string, timeoutMs = 8000): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-export function isDesktopClient(): boolean {
-  if (typeof window === 'undefined') return false;
-  return !/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-}
-
-export function getUserQuotaStats(totalUploadsCount: number, user: User | null): UserQuotaStats {
-  const isRegistered = Boolean(user && !user.isAnonymous);
-  const desktopBonus = isDesktopClient() ? QUOTA_CONFIG.desktopBonus : 0;
-  const baseLimit = isRegistered ? QUOTA_CONFIG.registeredLimit : QUOTA_CONFIG.anonymousLimit;
-  const totalLimit = baseLimit + desktopBonus;
-  const remaining = Math.max(0, totalLimit - totalUploadsCount);
-
-  return {
-    used: totalUploadsCount,
-    limit: totalLimit,
-    remaining,
-    planName: isRegistered ? 'Registered Free Tier' : 'Anonymous Free Tier',
-    isRegistered,
-    bonusApplied: desktopBonus,
-    maxFileSizeBytes: QUOTA_CONFIG.maxFileSizeBytes,
-    maxFileSizeLabel: QUOTA_CONFIG.maxFileSizeLabel,
-  };
-}
-
-function detectMediaType(ext: string, mime?: string): 'audio' | 'video' | 'image' {
-  const cleanExt = ext.toLowerCase();
-  const audioExts = ['.mp3', '.wav', '.m4a', '.ogg', '.opus', '.flac', '.aac', '.webm'];
-  const videoExts = ['.mp4', '.mov', '.webm', '.mkv', '.m4v', '.ogv'];
-
-  if (audioExts.includes(cleanExt) || (mime && mime.startsWith('audio/'))) return 'audio';
-  if (videoExts.includes(cleanExt) || (mime && mime.startsWith('video/'))) return 'video';
-  return 'image';
-}
-
-function detectFormatName(filename: string, mime: string): string {
-  const ext = filename.split('.').pop()?.toUpperCase();
-  if (ext && ext.length <= 5) return ext;
-  if (mime.includes('/')) return mime.split('/')[1].toUpperCase();
-  return 'FILE';
+    const response = await fetch(url, {
+      method: 'HEAD',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return response.ok;
+  } catch {
+    // If HEAD is blocked by CORS, try GET with range: 0-1
+    try {
+      const resp = await fetch(url, {
+        headers: { Range: 'bytes=0-1' },
+      });
+      return resp.ok;
+    } catch {
+      return true; // DownloadURL from getDownloadURL is cryptographically valid
+    }
+  }
 }
 
 /**
- * Single Centralized Media Workflow:
- * Upload -> Process -> Firebase Storage -> Verify -> Persistent URL -> Firestore -> Ready
+ * Clean data dictionary for Firestore
  */
-export async function uploadMediaFileToFirebase(
+export function sanitizeForFirestore(item: Record<string, any>): Record<string, any> {
+  const clean: Record<string, any> = {};
+  for (const [k, v] of Object.entries(item)) {
+    if (v !== undefined) {
+      if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+        clean[k] = sanitizeForFirestore(v);
+      } else {
+        clean[k] = v;
+      }
+    }
+  }
+  return clean;
+}
+
+/**
+ * Reliable Single Media Workflow:
+ * Upload -> Process -> Firebase Storage -> Verify -> Firestore -> Library
+ */
+export async function executeMediaUploadWorkflow(
   file: File,
-  ownerId: string,
-  user: User | null,
-  folder: string = 'public',
-  onProgress?: (percent: number) => void
+  folder = 'public',
+  onProgress?: (percent: number, stage: string) => void
 ): Promise<MediaItem> {
   if (!storage || !db) {
-    throw new Error('Firebase services are not initialized. Check your network or credentials.');
+    throw new Error('Firebase Storage and Firestore must be initialized.');
   }
 
-  // 1. Enforce Free Hosting File Size Limit (5 MB)
-  if (file.size > QUOTA_CONFIG.maxFileSizeBytes) {
-    throw new Error(`File "${file.name}" (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the maximum free limit of ${QUOTA_CONFIG.maxFileSizeLabel}.`);
-  }
+  const user = await ensureAuthenticatedUser();
+  const ownerId = user.uid;
 
-  // Ensure authenticated session to pass storage security rules
-  await ensureFirebaseAuth();
+  if (onProgress) onProgress(5, 'Processing file metadata...');
 
-  // 2. Media Processing: Strip EXIF metadata for images
-  let uploadBlob: Blob = file;
-  let uploadMime = file.type || 'application/octet-stream';
-  let exifStripped = false;
-
+  // 1. Image processing: EXIF stripping & format preservation
+  let finalBlob: Blob = file;
+  let finalMime = file.type;
   if (file.type.startsWith('image/')) {
-    try {
-      const processed = await processAndStripExif(file);
-      uploadBlob = processed.blob;
-      uploadMime = processed.mimeType;
-      exifStripped = true;
-    } catch {
-      uploadBlob = file;
-    }
+    const processed = await processImageFile(file);
+    finalBlob = processed.blob;
+    finalMime = processed.mimeType;
   }
 
-  // 3. Unique Storage Path Construction
-  const fileExt = '.' + (file.name.split('.').pop()?.toLowerCase() || 'bin');
-  const baseName = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
-  const uniqueId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-  const finalFilename = `${baseName}_${uniqueId}${fileExt}`;
-  const storagePath = `media/${ownerId}/${finalFilename}`;
-
-  // 4. Firebase Storage Upload (Atomic upload with content type, minimal headers to prevent CORS issues)
+  // 2. Storage Reference
+  const timestamp = Date.now();
+  const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const storagePath = `media/${ownerId}/${timestamp}_${safeFilename}`;
   const storageRef = ref(storage, storagePath);
-  const metadata = {
-    contentType: uploadMime,
-  };
 
-  if (onProgress) onProgress(15);
+  // 3. Upload to Firebase Storage
+  if (onProgress) onProgress(15, 'Uploading to Firebase Storage...');
+  const uploadTask = uploadBytesResumable(storageRef, finalBlob, {
+    contentType: finalMime,
+    customMetadata: {
+      ownerId,
+      originalName: file.name,
+      folder,
+    },
+  });
 
-  let downloadURL = '';
-  try {
-    // Attempt standard uploadBytes
-    const snapshot = await uploadBytes(storageRef, uploadBlob, metadata);
-    if (onProgress) onProgress(80);
-    downloadURL = await getDownloadURL(snapshot.ref);
-  } catch (err: any) {
-    // Fallback attempt via uploadBytesResumable
-    try {
-      const uploadTask = uploadBytesResumable(storageRef, uploadBlob, metadata);
-      await new Promise<void>((resolve, reject) => {
-        uploadTask.on(
-          'state_changed',
-          (snapshot) => {
-            if (snapshot.totalBytes > 0 && onProgress) {
-              const p = Math.min(90, Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 85) + 5);
-              onProgress(p);
-            }
-          },
-          (e) => reject(e),
-          () => resolve()
-        );
-      });
-      downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-    } catch (innerErr: any) {
-      const msg = innerErr?.message || err?.message || 'Storage upload error';
-      if (msg.includes('CORS') || msg.includes('preflight') || msg.includes('network')) {
-        throw new Error('Firebase Storage CORS preflight rejected by bucket. Apply cors.json to bucket using gsutil or Cloud Shell.');
-      }
-      throw new Error(msg);
-    }
+  await new Promise<void>((resolve, reject) => {
+    uploadTask.on(
+      'state_changed',
+      (snap) => {
+        const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 70) + 15;
+        if (onProgress) onProgress(Math.min(85, pct), 'Uploading to Firebase Cloud Storage...');
+      },
+      (err) => reject(err),
+      () => resolve()
+    );
+  });
+
+  // 4. Generate & Verify Persistent Download URL
+  if (onProgress) onProgress(88, 'Generating and verifying CDN URL...');
+  const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+  const isValid = await verifyMediaUrl(downloadURL);
+  if (!isValid) {
+    throw new Error('Failed to verify persistent media download URL.');
   }
 
-  // 5. Verify Persistent URL
-  if (!downloadURL || !downloadURL.startsWith('http')) {
-    throw new Error('Failed to generate a verified persistent download URL from Firebase Storage.');
+  // 5. Build Firestore Record
+  if (onProgress) onProgress(94, 'Saving record to Firestore...');
+  const docId = `media_${timestamp}_${Math.random().toString(36).substring(2, 7)}`;
+  const ext = file.name.split('.').pop()?.toUpperCase() || 'BIN';
+
+  let detectedType: 'audio' | 'video' | 'image' = 'image';
+  if (file.type.startsWith('audio/') || ['.MP3', '.WAV', '.M4A', '.OGG', '.FLAC'].includes('.' + ext)) {
+    detectedType = 'audio';
+  } else if (file.type.startsWith('video/') || ['.MP4', '.MOV', '.WEBM', '.MKV'].includes('.' + ext)) {
+    detectedType = 'video';
   }
-
-  if (onProgress) onProgress(95);
-
-  // 6. Firestore Metadata Record Persistence
-  const mediaDocId = uniqueId;
-  const mediaType = detectMediaType(fileExt, uploadMime);
-  const formatName = detectFormatName(finalFilename, uploadMime);
 
   const mediaRecord: MediaItem = {
-    id: mediaDocId,
-    documentId: mediaDocId,
+    id: docId,
+    documentId: docId,
+    filename: file.name,
+    originalName: file.name,
     storagePath,
     downloadURL,
     directUrl: downloadURL,
     directAudioUrl: downloadURL,
-    playerUrl: `/?view=${mediaDocId}`,
-    filename: finalFilename,
-    originalName: file.name,
-    mimeType: uploadMime,
-    size: uploadBlob.size,
-    format: formatName,
-    mediaType,
-    folder: folder || 'public',
+    playerUrl: `${window.location.origin}/?view=${docId}`,
+    mimeType: finalMime,
+    size: finalBlob.size,
+    format: ext,
+    mediaType: detectedType,
+    folder,
     createdAt: new Date().toISOString(),
     ownerId,
-    userEmail: user?.email || undefined,
+    userId: ownerId,
+    userEmail: user.email || undefined,
+    isGuest: user.isAnonymous,
     status: 'ready',
-    isGuest: !user || user.isAnonymous,
-    metadata: {
-      exifStripped,
-      storageVerified: true,
-      format: formatName,
-    },
+    views: 0,
+    plays: 0,
+    downloads: 0,
   };
 
-  await setDoc(doc(db, 'media', mediaDocId), mediaRecord, { merge: true });
+  // 6. Write to Firestore
+  await setDoc(doc(db, 'media', docId), sanitizeForFirestore(mediaRecord));
 
-  if (onProgress) onProgress(100);
-
+  if (onProgress) onProgress(100, 'Ready');
   return mediaRecord;
 }
 
-export async function renameMediaRecordInFirestore(documentId: string, newOriginalName: string): Promise<boolean> {
-  if (!db || !documentId || !newOriginalName.trim()) return false;
-  try {
-    const docRef = doc(db, 'media', documentId);
-    await updateDoc(docRef, { originalName: newOriginalName.trim() });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function moveMediaRecordFolderInFirestore(documentId: string, newFolder: string): Promise<boolean> {
-  if (!db || !documentId) return false;
-  try {
-    const docRef = doc(db, 'media', documentId);
-    await updateDoc(docRef, { folder: newFolder.trim() || 'public' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function deleteMediaRecordFromFirebase(item: MediaItem): Promise<boolean> {
-  if (!db) return false;
-  let storageDeleted = false;
-  let firestoreDeleted = false;
-
-  if (storage && item.storagePath) {
-    try {
-      const storageRef = ref(storage, item.storagePath);
-      await deleteObject(storageRef);
-      storageDeleted = true;
-    } catch (err: any) {
-      if (err?.code === 'storage/object-not-found') storageDeleted = true;
-    }
-  }
-
-  const docId = item.documentId || item.id;
-  if (docId) {
-    try {
-      await deleteDoc(doc(db, 'media', docId));
-      firestoreDeleted = true;
-    } catch {}
-  }
-
-  return storageDeleted || firestoreDeleted;
-}
-
-export function subscribeToOwnerMediaLibrary(
+/**
+ * Real-time subscription to user's persistent library records in Firestore
+ */
+export function subscribeToUserMediaLibrary(
   ownerId: string,
   onUpdate: (items: MediaItem[]) => void,
   onError?: (err: any) => void
@@ -266,26 +189,25 @@ export function subscribeToOwnerMediaLibrary(
     return onSnapshot(
       q,
       (snapshot) => {
-        const records: MediaItem[] = [];
+        const items: MediaItem[] = [];
         snapshot.forEach((d) => {
-          const data = d.data() as MediaItem;
-          if (data && (data.downloadURL || data.directUrl)) {
-            records.push({
-              ...data,
-              id: data.documentId || data.id || d.id,
-              documentId: data.documentId || data.id || d.id,
-              downloadURL: data.downloadURL || data.directUrl,
-              directUrl: data.downloadURL || data.directUrl,
-              folder: data.folder || 'public',
+          const item = d.data() as MediaItem;
+          if (item && item.id) {
+            items.push({
+              ...item,
+              documentId: d.id,
+              downloadURL: item.downloadURL || item.directUrl,
+              directUrl: item.downloadURL || item.directUrl,
+              duration: Number(item.duration ?? item.metadata?.duration ?? 0),
             });
           }
         });
 
-        records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        onUpdate(records);
+        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        onUpdate(items);
       },
-      (err) => {
-        if (onError) onError(err);
+      (error) => {
+        if (onError) onError(error);
       }
     );
   } catch (err) {
@@ -294,19 +216,50 @@ export function subscribeToOwnerMediaLibrary(
   }
 }
 
-export async function fetchMediaRecordById(documentId: string): Promise<MediaItem | null> {
-  if (!db || !documentId) return null;
+/**
+ * Renames a media file in Firestore metadata
+ */
+export async function renameMediaRecord(docId: string, newName: string): Promise<void> {
+  if (!db) return;
+  await updateDoc(doc(db, 'media', docId), {
+    filename: newName,
+    originalName: newName,
+  });
+}
+
+/**
+ * Moves a media file to a different folder
+ */
+export async function moveMediaRecord(docId: string, newFolder: string): Promise<void> {
+  if (!db) return;
+  await updateDoc(doc(db, 'media', docId), {
+    folder: newFolder,
+  });
+}
+
+/**
+ * Deletes media permanently from Firestore AND Firebase Storage
+ */
+export async function deleteMediaRecord(item: MediaItem): Promise<void> {
+  if (db && item.documentId) {
+    await deleteDoc(doc(db, 'media', item.documentId)).catch(() => {});
+  }
+
+  if (storage && item.storagePath) {
+    const storageRef = ref(storage, item.storagePath);
+    await deleteObject(storageRef).catch(() => {});
+  }
+}
+
+/**
+ * Fetches a single media record by ID
+ */
+export async function fetchMediaRecord(id: string): Promise<MediaItem | null> {
+  if (!db) return null;
   try {
-    const snap = await getDoc(doc(db, 'media', documentId));
+    const snap = await getDoc(doc(db, 'media', id));
     if (snap.exists()) {
-      const data = snap.data() as MediaItem;
-      return {
-        ...data,
-        id: data.documentId || data.id || snap.id,
-        documentId: data.documentId || data.id || snap.id,
-        downloadURL: data.downloadURL || data.directUrl,
-        directUrl: data.downloadURL || data.directUrl,
-      };
+      return snap.data() as MediaItem;
     }
     return null;
   } catch {

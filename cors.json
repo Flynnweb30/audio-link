@@ -1,22 +1,19 @@
 [
   {
     "origin": [
-      "https://audiolink-media-converter.onrender.com",
       "https://audiolink-oskn.onrender.com",
+      "https://audiolink-media-service.onrender.com",
       "http://localhost:5173",
       "http://localhost:3000",
-      "*"
+      "http://localhost:4173"
     ],
     "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
     "responseHeader": [
       "Content-Type",
-      "Access-Control-Allow-Origin",
       "Authorization",
       "Content-Length",
       "User-Agent",
-      "x-goog-resumable",
-      "x-firebase-storage-version",
-      "*"
+      "x-goog-resumable"
     ],
     "maxAgeSeconds": 3600
   }
